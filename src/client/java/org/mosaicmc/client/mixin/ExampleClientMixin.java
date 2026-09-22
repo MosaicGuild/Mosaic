@@ -1,4 +1,4 @@
-package mosaic.client.mixin;
+package org.mosaicmc.client.mixin;
 
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
