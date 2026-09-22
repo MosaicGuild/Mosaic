@@ -4,7 +4,7 @@ import org.mosaicmc.client.key.MosaicKeyEventHandler;
 import org.mosaicmc.client.key.MosaicKeys;
 import net.fabricmc.api.ClientModInitializer;
 import org.mosaicmc.Mosaic;
-import org.mosaicmc.core.ExtensionManager;
+import org.mosaicmc.extension.ExtensionManager;
 
 public class MosaicClient implements ClientModInitializer {
 	@Override
