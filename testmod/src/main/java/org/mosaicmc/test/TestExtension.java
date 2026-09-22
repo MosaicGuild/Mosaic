@@ -1,7 +1,7 @@
 package org.mosaicmc.test;
 
-import org.mosaicmc.core.Extension;
-import org.mosaicmc.core.ExtensionMetadata;
+import org.mosaicmc.extension.Extension;
+import org.mosaicmc.api.ExtensionMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

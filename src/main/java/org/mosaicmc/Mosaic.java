@@ -4,7 +4,7 @@ import net.fabricmc.api.ModInitializer;
 
 import net.minecraft.resources.Identifier;
 
-import org.mosaicmc.core.ExtensionManager;
+import org.mosaicmc.extension.ExtensionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
