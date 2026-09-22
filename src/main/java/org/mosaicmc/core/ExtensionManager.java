@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 public class ExtensionManager {
     private static final Logger LOGGER = Mosaic.LOGGER;
     private static final Map<String, Extension> EXTENSIONS = new LinkedHashMap<>();
+    private static volatile ExtensionScheduler scheduler = Runnable::run;
 
     // For the future me; This thing called init is for extension discovery
     public static void init() {
@@ -36,6 +37,13 @@ public class ExtensionManager {
                 extension = container.getEntrypoint();
             } catch (Exception e) {
                 LOGGER.error("Failed to instantiate extension from {}", modId, e);
+                continue;
+            }
+
+            try {
+                extension.setContext(new ExtensionContextImpl(scheduler));
+            } catch (Exception e) {
+                LOGGER.error("Failed to inject context into extension from {}", modId, e);
                 continue;
             }
 
@@ -74,6 +82,35 @@ public class ExtensionManager {
 
     static void resetForTesting() {
         EXTENSIONS.clear();
+        scheduler = Runnable::run;
+    }
+
+    /**
+     * Replaces the scheduler used for newly created extension contexts and
+     * refreshes the context of already registered extensions.
+     * The client initializer installs the real client-thread scheduler here;
+     * the default simply runs tasks inline (safe for unit tests / servers).
+     */
+    public static void setScheduler(ExtensionScheduler scheduler) {
+        if (scheduler == null) {
+            throw new IllegalArgumentException("scheduler must not be null");
+        }
+        ExtensionManager.scheduler = scheduler;
+        int refreshed = 0;
+        for (Extension extension : EXTENSIONS.values()) {
+            try {
+                extension.setContext(new ExtensionContextImpl(scheduler));
+                refreshed++;
+            } catch (Exception e) {
+                LOGGER.error("Failed to refresh context", e);
+            }
+        }
+        LOGGER.info("[Mosaic] scheduler set to {} (refreshed {} extension contexts)",
+                scheduler.getClass().getSimpleName(), refreshed);
+    }
+
+    static ExtensionScheduler getScheduler() {
+        return scheduler;
     }
 
     public static Optional<Extension> get(String id) {

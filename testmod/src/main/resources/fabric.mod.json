@@ -16,6 +16,9 @@
 	"entrypoints": {
 		"mosaic": [
 			"org.mosaicmc.test.TestExtension"
+		],
+		"client": [
+			"org.mosaicmc.test.TestExtensionClient"
 		]
 	},
 	"depends": {

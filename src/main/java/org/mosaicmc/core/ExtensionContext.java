@@ -1,5 +1,9 @@
 package org.mosaicmc.core;
 
 public interface ExtensionContext {
-    // TODO
+
+    /**
+     * Provides access to the extension scheduler.
+     */
+    ExtensionScheduler getScheduler();
 }
