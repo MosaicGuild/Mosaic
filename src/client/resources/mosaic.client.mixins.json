@@ -1,6 +1,6 @@
 {
 	"required": true,
-	"package": "mosaic.client.mixin",
+	"package": "org.mosaicmc.client.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
 		"ExampleClientMixin"
