@@ -1,0 +1,65 @@
+plugins {
+	id 'net.fabricmc.fabric-loom'
+	id 'maven-publish'
+}
+
+loom {
+	mods {
+		"mosaic-testmod" {
+			sourceSet sourceSets.main
+		}
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// To change the versions see the gradle.properties file
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	// Fabric API. This is technically optional, but you probably want it anyway.
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Mosaic extension API (root project)
+	implementation project(':')
+
+	testImplementation "org.junit.jupiter:junit-jupiter-api:${project.junit_version}"
+	testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${project.junit_version}"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher:${project.junit_platform_version}"
+}
+
+test {
+	useJUnitPlatform()
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from("../LICENSE") {
+		rename { "${it}_$projectName" }
+	}
+}

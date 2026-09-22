@@ -1,9 +1,9 @@
 {
 	"schemaVersion": 1,
-	"id": "mosaic",
+	"id": "mosaic-testmod",
 	"version": "${version}",
-	"name": "Mosaic",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"name": "Mosaic Test Extension",
+	"description": "Test mod for the Mosaic extension API.",
 	"authors": [
 		"Me!"
 	],
@@ -12,25 +12,18 @@
 		"sources": "https://github.com/FabricMC/fabric-example-mod"
 	},
 	"license": "CC0-1.0",
-	"icon": "assets/mosaic/icon.png",
 	"environment": "*",
 	"entrypoints": {
-		"main": [
-			"org.mosaicmc.Mosaic"
+		"mosaic": [
+			"org.mosaicmc.test.TestExtension"
 		],
 		"client": [
-			"org.mosaicmc.client.MosaicClient"
+			"org.mosaicmc.test.TestExtensionClient"
 		]
 	},
-	"mixins": [
-		"mosaic.mixins.json",
-		{
-			"config": "mosaic.client.mixins.json",
-			"environment": "client"
-		}
-	],
 	"depends": {
 		"fabricloader": ">=0.19.5",
+		"mosaic": "*",
 		"minecraft": "~26.3",
 		"java": ">=25",
 		"fabric-api": "*"
