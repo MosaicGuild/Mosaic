@@ -234,7 +234,7 @@ class ExtensionManagerTest {
         return null;
     }
 
-    private static final class DummyExtension implements Extension {
+    private static final class DummyExtension extends Extension {
         private final ExtensionMetadata metadata;
         private final List<String> calls = new ArrayList<>();
         private int loads;
