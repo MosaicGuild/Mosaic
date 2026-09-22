@@ -1,6 +1,6 @@
 {
 	"required": true,
-	"package": "org.mosaicmc.mixin",
+	"package": "mosaic.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
 		"ExampleMixin"

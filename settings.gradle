@@ -11,5 +11,3 @@ pluginManagement {
 
 // Should match your modid
 rootProject.name = 'mosaic'
-
-include 'testmod'

@@ -16,10 +16,10 @@
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"org.mosaicmc.Mosaic"
+			"mosaic.Mosaic"
 		],
 		"client": [
-			"org.mosaicmc.client.MosaicClient"
+			"mosaic.client.MosaicClient"
 		]
 	},
 	"mixins": [
