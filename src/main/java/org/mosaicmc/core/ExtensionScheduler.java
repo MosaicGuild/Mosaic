@@ -1,4 +1,4 @@
-package org.mosaicmc.api;
+package org.mosaicmc.core;
 
 public interface ExtensionScheduler {
 

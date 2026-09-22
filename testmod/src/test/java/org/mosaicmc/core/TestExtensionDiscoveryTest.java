@@ -1,4 +1,4 @@
-package org.mosaicmc.extension;
+package org.mosaicmc.core;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -20,7 +20,7 @@ import org.mosaicmc.test.TestExtension;
 /**
  * Proves the real testmod passes {@link ExtensionManager} validation.
  *
- * <p>Lives in {@code org.mosaicmc.extension} (instead of {@code org.mosaicmc.test})
+ * <p>Lives in {@code org.mosaicmc.core} (instead of {@code org.mosaicmc.test})
  * to reach the package-private {@code init(FabricLoader)} seam without
  * widening the public API.
  */
@@ -126,16 +126,14 @@ class TestExtensionDiscoveryTest {
                 TestExtensionDiscoveryTest.class.getClassLoader(),
                 new Class<?>[] { type },
                 (proxy, method, args) -> {
-                    switch (method.getName()) {
-                        case "toString" -> {
-                            return "fake(" + type.getSimpleName() + ")";
-                        }
-                        case "hashCode" -> {
-                            return System.identityHashCode(proxy);
-                        }
-                        case "equals" -> {
-                            return proxy == args[0];
-                        }
+                    if (method.getName().equals("toString")) {
+                        return "fake(" + type.getSimpleName() + ")";
+                    }
+                    if (method.getName().equals("hashCode")) {
+                        return System.identityHashCode(proxy);
+                    }
+                    if (method.getName().equals("equals")) {
+                        return proxy == args[0];
                     }
                     if (values.containsKey(method.getName())) {
                         return values.get(method.getName());

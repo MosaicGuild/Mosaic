@@ -1,4 +1,4 @@
-package org.mosaicmc.extension;
+package org.mosaicmc.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -17,7 +17,6 @@ import net.fabricmc.loader.api.entrypoint.EntrypointContainer;
 import net.fabricmc.loader.api.metadata.ModMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mosaicmc.api.ExtensionMetadata;
 
 /**
  * Unit tests for {@link ExtensionManager} discovery and lifecycle control.

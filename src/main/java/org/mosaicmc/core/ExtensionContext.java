@@ -1,4 +1,4 @@
-package org.mosaicmc.api;
+package org.mosaicmc.core;
 
 public interface ExtensionContext {
 
@@ -6,9 +6,4 @@ public interface ExtensionContext {
      * Provides access to the extension scheduler.
      */
     ExtensionScheduler getScheduler();
-
-    /**
-     * Provides access to the extension events.
-     */
-    ExtensionEvents getEvents();
 }

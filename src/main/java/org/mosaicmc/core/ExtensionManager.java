@@ -1,4 +1,4 @@
-package org.mosaicmc.extension;
+package org.mosaicmc.core;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -8,8 +8,6 @@ import java.util.Optional;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.entrypoint.EntrypointContainer;
 import org.mosaicmc.Mosaic;
-import org.mosaicmc.api.ExtensionScheduler;
-import org.mosaicmc.internal.ExtensionContextImpl;
 import org.slf4j.Logger;
 
 public class ExtensionManager {

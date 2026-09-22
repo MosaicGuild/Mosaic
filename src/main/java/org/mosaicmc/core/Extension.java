@@ -1,9 +1,6 @@
-package org.mosaicmc.extension;
+package org.mosaicmc.core;
 
 import java.util.Objects;
-
-import org.mosaicmc.api.ExtensionContext;
-import org.mosaicmc.api.ExtensionMetadata;
 
 public abstract class Extension {
 

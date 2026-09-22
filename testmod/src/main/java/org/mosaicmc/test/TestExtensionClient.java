@@ -7,8 +7,8 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
-import org.mosaicmc.extension.ExtensionManager;
-import org.mosaicmc.api.ExtensionScheduler;
+import org.mosaicmc.core.ExtensionManager;
+import org.mosaicmc.core.ExtensionScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,16 +29,8 @@ public final class TestExtensionClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        var extension = ExtensionManager.get("mosaic-testmod").orElse(null);
-        if (extension == null) {
-            LOGGER.warn("[Mosaic Test] extension not registered yet, registering tick directly");
-            ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
-            return;
-        }
-        var events = extension.getContext().getEvents();
-        LOGGER.info("[Mosaic Test] client demo armed via context events={} (waiting for world join)",
-                events.getClass().getSimpleName());
-        events.register(ClientTickEvents.END_CLIENT_TICK, this::onEndTick);
+        LOGGER.info("[Mosaic Test] client demo armed (waiting for world join)");
+        ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
     }
 
     private void onEndTick(Minecraft client) {

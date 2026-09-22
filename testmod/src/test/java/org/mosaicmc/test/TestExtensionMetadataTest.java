@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
-import org.mosaicmc.api.ExtensionMetadata;
+import org.mosaicmc.core.ExtensionMetadata;
 
 /**
  * Guards the test extension metadata against drift from its
