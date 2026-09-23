@@ -12,6 +12,8 @@ public class MosaicClient implements ClientModInitializer {
 		ExtensionManager.setScheduler(ClientExtensionScheduler.INSTANCE);
 		Mosaic.LOGGER.info("[Mosaic] client scheduler installed: {}",
 				ClientExtensionScheduler.INSTANCE.getClass().getSimpleName());
+		ManagedClientTick.installOnce();
+		Mosaic.LOGGER.info("[Mosaic] managed client tick installed");
 		MosaicKeys.init();
 		MosaicKeyEventHandler.init();
 	}

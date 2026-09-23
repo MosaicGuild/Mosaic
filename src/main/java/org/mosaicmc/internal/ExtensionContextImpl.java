@@ -12,8 +12,12 @@ public final class ExtensionContextImpl implements ExtensionContext {
     private final ExtensionEvents events;
 
     public ExtensionContextImpl(ExtensionScheduler scheduler) {
-        this.scheduler = Objects.requireNonNull(scheduler);
-        this.events = new ExtensionEventsImpl();
+        this(scheduler, new ExtensionEventsImpl());
+    }
+
+    public ExtensionContextImpl(ExtensionScheduler scheduler, ExtensionEvents events) {
+        this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+        this.events = Objects.requireNonNull(events, "events");
     }
 
     @Override

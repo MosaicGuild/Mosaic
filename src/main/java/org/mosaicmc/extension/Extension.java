@@ -10,34 +10,27 @@ import org.mosaicmc.api.ExtensionMetadata;
  *
  * <p>Lifecycle, in order:
  * <ol>
- *   <li>The extension is instantiated via its {@code mosaic} entrypoint.</li>
- *   <li>Mosaic injects its {@link ExtensionContext}.</li>
+ *   <li>Instantiated via the {@code mosaic} entrypoint.</li>
+ *   <li>Mosaic injects the {@link ExtensionContext}.</li>
  *   <li>{@link #onLoad()} runs once at discovery time.</li>
- *   <li>{@link #onEnable()} / {@link #onDisable()} run each time the user
- *   toggles the extension. Each may run multiple times, and {@code onLoad}
- *   always runs before the first {@code onEnable}.</li>
+ *   <li>{@link #onEnable()} / {@link #onDisable()} run on every user toggle;
+ *   each may run multiple times, and {@code onLoad} always runs first.</li>
  * </ol>
  *
- * <p>The context is only available from {@code onLoad} onwards. Do not call
- * {@link #getContext()} from a constructor or field initializer; it throws
- * {@link IllegalStateException} until injection has happened. Always call
- * {@code getContext()} fresh rather than caching the returned object: Mosaic
- * may re-issue contexts (for example when the scheduler is swapped in), and a
- * cached reference can go stale.
+ * <p>The context is only available from {@code onLoad} onwards -- never in a
+ * constructor or field initializer. Call {@code getContext()} fresh instead
+ * of caching it; re-issued contexts can leave a cached reference stale.
  *
- * <p>If a lifecycle method throws, the exception is caught and logged by
- * Mosaic; it never propagates to the caller that toggled the extension.
+ * <p>A throwing lifecycle method is caught and logged by Mosaic; it never
+ * propagates to the toggling caller.
  */
 public abstract class Extension {
 
     private ExtensionContext context;
 
     /**
-     * This provides all the metadata of the extension.
-     *
-     * <p>Must never return {@code null}. If the metadata itself is broken
-     * ({@code null}, or an id that is {@code null} or blank), the extension
-     * is skipped at discovery time and {@code onLoad} never runs.
+     * The extension's metadata. Never {@code null}; broken metadata (an id
+     * that is {@code null} or blank) skips the extension at discovery time.
      */
     public abstract ExtensionMetadata getMetadata();
 
@@ -70,11 +63,9 @@ public abstract class Extension {
     /**
      * This runs once the extension has been disabled by the user.
      *
-     * <p>Note: in API v1, listeners registered via
-     * {@link org.mosaicmc.api.ExtensionEvents#register} cannot be
-     * unregistered (registration returns no handle and lives for the
-     * session), so there is nothing to unload yet. This method exists for
-     * forward compatibility: once handles exist, cleanup will belong here.
+     * <p>Prefer explicit {@code unregister()} here. As a safety net, Mosaic
+     * also removes the extension's remaining managed registrations after
+     * this method returns, so no callback is left behind either way.
      */
     public abstract void onDisable();
 

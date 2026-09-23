@@ -1,38 +1,78 @@
 package org.mosaicmc.api;
 
-import net.fabricmc.fabric.api.event.Event;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 /**
- * Thin bridge over Fabric's event model.
+ * Event registrations with working unregistration.
  *
- * <p>Pass any Fabric {@link Event} (for example
- * {@code ClientTickEvents.END_CLIENT_TICK}) together with its listener; see
- * the Fabric documentation for the available events and their listener
- * types. Example:
+ * <p>Every method here returns an {@link EventRegistration}; calling
+ * {@link EventRegistration#unregister()} removes the listener. Only the
+ * methods listed here carry that guarantee.
+ *
+ * <p>Example:
  * <pre>{@code
- * getContext().getEvents().register(
- *     ClientTickEvents.END_CLIENT_TICK,
- *     client -> {
- *         if (client.player != null) {
- *             // actual extension functionality
- *         }
- *     });
+ * EventRegistration ticking = getContext().getEvents().onClientTick(client -> {
+ *     if (client.player != null) {
+ *         // actual extension functionality
+ *     }
+ * });
+ * ...
+ * ticking.unregister();
  * }</pre>
- *
- * <p>Deliberate v1 limitation: registration returns no handle and cannot be
- * undone, so a registered listener lives for the rest of the session. A
- * future version will return a handle for cleanup in
- * {@code Extension.onDisable()}.
  */
 public interface ExtensionEvents {
 
     /**
-     * Registers a listener on a Fabric event.
+     * Registers a listener for the client end-tick, running on the client
+     * thread after each client tick.
      *
-     * @param event the Fabric event to listen on, must not be {@code null}
-     * @param listener the listener to register, must not be {@code null}
-     * @param <T> the listener type
-     * @throws NullPointerException if {@code event} or {@code listener} is {@code null}
+     * <p>Client-only: throws {@link IllegalStateException} on a dedicated
+     * server. Disabling the extension removes its remaining registrations
+     * automatically, but explicit {@code unregister()} is still preferred.
+     *
+     * @param listener the tick listener, must not be {@code null}
+     * @return a working registration handle, never {@code null}
+     * @throws NullPointerException if {@code listener} is {@code null}
+     * @throws IllegalStateException if called where no client tick exists
      */
-    <T> void register(Event<T> event, T listener);
+    EventRegistration onClientTick(ClientTickEvents.EndTick listener);
+
+    /**
+     * Registers a listener for the client start-tick, running on the client
+     * thread before each client tick.
+     *
+     * <p>Same lifecycle and error contract as {@link #onClientTick}.
+     *
+     * @param listener the tick listener, must not be {@code null}
+     * @return a working registration handle, never {@code null}
+     * @throws NullPointerException if {@code listener} is {@code null}
+     * @throws IllegalStateException if called where no client tick exists
+     */
+    EventRegistration onClientTickStart(ClientTickEvents.StartTick listener);
+
+    /**
+     * Registers a listener for the client level start-tick, running on the
+     * client thread before each tick of the loaded level.
+     *
+     * <p>Same lifecycle and error contract as {@link #onClientTick}.
+     *
+     * @param listener the level tick listener, must not be {@code null}
+     * @return a working registration handle, never {@code null}
+     * @throws NullPointerException if {@code listener} is {@code null}
+     * @throws IllegalStateException if called where no client tick exists
+     */
+    EventRegistration onLevelTickStart(ClientTickEvents.StartLevelTick listener);
+
+    /**
+     * Registers a listener for the client level end-tick, running on the
+     * client thread after each tick of the loaded level.
+     *
+     * <p>Same lifecycle and error contract as {@link #onClientTick}.
+     *
+     * @param listener the level tick listener, must not be {@code null}
+     * @return a working registration handle, never {@code null}
+     * @throws NullPointerException if {@code listener} is {@code null}
+     * @throws IllegalStateException if called where no client tick exists
+     */
+    EventRegistration onLevelTickEnd(ClientTickEvents.EndLevelTick listener);
 }
