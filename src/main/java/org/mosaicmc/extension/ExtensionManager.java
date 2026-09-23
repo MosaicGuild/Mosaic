@@ -9,12 +9,15 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.entrypoint.EntrypointContainer;
 import org.mosaicmc.Mosaic;
 import org.mosaicmc.api.ExtensionScheduler;
+import org.mosaicmc.internal.ClientTickRegistry;
 import org.mosaicmc.internal.ExtensionContextImpl;
+import org.mosaicmc.internal.ExtensionEventsImpl;
 import org.slf4j.Logger;
 
 public class ExtensionManager {
     private static final Logger LOGGER = Mosaic.LOGGER;
     private static final Map<String, Extension> EXTENSIONS = new LinkedHashMap<>();
+    private static final Map<String, ExtensionEventsImpl> EVENT_BRIDGES = new LinkedHashMap<>();
     private static volatile ExtensionScheduler scheduler = Runnable::run;
 
     // For the future me; This thing called init is for extension discovery
@@ -42,8 +45,10 @@ public class ExtensionManager {
                 continue;
             }
 
+            ExtensionEventsImpl events = new ExtensionEventsImpl();
+
             try {
-                extension.setContext(new ExtensionContextImpl(scheduler));
+                extension.setContext(new ExtensionContextImpl(scheduler, events));
             } catch (Exception e) {
                 LOGGER.error("Failed to inject context into extension from {}", modId, e);
                 continue;
@@ -69,6 +74,7 @@ public class ExtensionManager {
             }
 
             EXTENSIONS.put(id, extension);
+            EVENT_BRIDGES.put(id, events);
 
             try {
                 extension.onLoad();
@@ -84,6 +90,8 @@ public class ExtensionManager {
 
     static void resetForTesting() {
         EXTENSIONS.clear();
+        EVENT_BRIDGES.clear();
+        ClientTickRegistry.clearAll();
         scheduler = Runnable::run;
     }
 
@@ -92,6 +100,7 @@ public class ExtensionManager {
      * refreshes the context of already registered extensions.
      * The client initializer installs the real client-thread scheduler here;
      * the default simply runs tasks inline (safe for unit tests / servers).
+     * Each extension keeps its events bridge, so registrations survive the swap.
      */
     public static void setScheduler(ExtensionScheduler scheduler) {
         if (scheduler == null) {
@@ -99,9 +108,11 @@ public class ExtensionManager {
         }
         ExtensionManager.scheduler = scheduler;
         int refreshed = 0;
-        for (Extension extension : EXTENSIONS.values()) {
+        for (Map.Entry<String, Extension> entry : EXTENSIONS.entrySet()) {
             try {
-                extension.setContext(new ExtensionContextImpl(scheduler));
+                ExtensionEventsImpl events = EVENT_BRIDGES.computeIfAbsent(
+                        entry.getKey(), key -> new ExtensionEventsImpl());
+                entry.getValue().setContext(new ExtensionContextImpl(scheduler, events));
                 refreshed++;
             } catch (Exception e) {
                 LOGGER.error("Failed to refresh context", e);
@@ -146,6 +157,12 @@ public class ExtensionManager {
             extension.onDisable();
         } catch (Exception e) {
             LOGGER.error("Extension {} failed onDisable", id, e);
+        }
+
+        // Safety net after the extension's own cleanup: no callback left behind.
+        ExtensionEventsImpl events = EVENT_BRIDGES.get(id);
+        if (events != null) {
+            events.clear();
         }
     }
 }

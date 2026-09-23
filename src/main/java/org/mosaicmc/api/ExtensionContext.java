@@ -3,11 +3,9 @@ package org.mosaicmc.api;
 /**
  * Services Mosaic provides to one extension.
  *
- * <p>Do not implement this interface yourself; Mosaic injects the instance
- * and hands it out via {@code Extension.getContext()}. Always call
- * {@code getContext()} fresh instead of caching the context: Mosaic may
- * re-issue context objects over an extension's lifetime, and a cached
- * reference can serve a stale scheduler.
+ * <p>Do not implement this interface; Mosaic injects the instance. Call
+ * {@code getContext()} fresh instead of caching it: Mosaic may re-issue
+ * contexts, and a cached reference can go stale.
  */
 public interface ExtensionContext {
 

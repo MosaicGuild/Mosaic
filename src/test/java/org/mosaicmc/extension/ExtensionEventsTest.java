@@ -1,16 +1,14 @@
 package org.mosaicmc.extension;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import net.fabricmc.fabric.api.event.Event;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.fabricmc.loader.api.entrypoint.EntrypointContainer;
@@ -18,10 +16,14 @@ import net.fabricmc.loader.api.metadata.ModMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mosaicmc.api.ExtensionMetadata;
+import org.mosaicmc.internal.ClientTickRegistry;
 
 /**
- * Proves the context exposes a working events bridge over Fabric's
- * {@link Event} model.
+ * Proves the managed tick lifecycle: register, fire, unregister, and
+ * disable-cleanup. Ticks are driven through the registry snapshots with
+ * {@code null} clients and levels (listeners under test ignore them); the
+ * test source set sees client classes, so invoking the Fabric listener
+ * types compiles.
  */
 class ExtensionEventsTest {
 
@@ -40,63 +42,199 @@ class ExtensionEventsTest {
     }
 
     @Test
-    void registerDelegatesToFabricEvent() {
+    void registerRejectsNull() {
         ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", new DummyExtension()))));
         var events = ExtensionManager.get("waypoints").orElseThrow().getContext().getEvents();
 
-        var captured = new AtomicReference<Object>();
-        Event<Runnable> event = fakeEvent(captured);
-
-        Runnable listener = () -> {
-        };
-        events.register(event, listener);
-
-        assertSame(listener, captured.get(), "listener must be passed straight to Event.register");
+        assertThrows(NullPointerException.class, () -> events.onClientTick(null));
+        assertThrows(NullPointerException.class, () -> events.onClientTickStart(null));
+        assertThrows(NullPointerException.class, () -> events.onLevelTickStart(null));
+        assertThrows(NullPointerException.class, () -> events.onLevelTickEnd(null));
     }
 
     @Test
-    void registerRejectsNulls() {
+    void registeredListenerFires() {
+        var events = registeredEvents();
+
+        var fires = new AtomicInteger();
+        events.onClientTick(client -> fires.incrementAndGet());
+
+        fireTick();
+
+        assertEquals(1, fires.get());
+    }
+
+    @Test
+    void twoListenersBothFire() {
+        var events = registeredEvents();
+
+        var first = new AtomicInteger();
+        var second = new AtomicInteger();
+        events.onClientTick(client -> first.incrementAndGet());
+        events.onClientTick(client -> second.incrementAndGet());
+
+        fireTick();
+
+        assertEquals(1, first.get());
+        assertEquals(1, second.get());
+    }
+
+    @Test
+    void unregisterOneLeavesTheOther() {
+        var events = registeredEvents();
+
+        var first = new AtomicInteger();
+        var second = new AtomicInteger();
+        var registration = events.onClientTick(client -> first.incrementAndGet());
+        events.onClientTick(client -> second.incrementAndGet());
+
+        registration.unregister();
+        fireTick();
+
+        assertEquals(0, first.get());
+        assertEquals(1, second.get());
+    }
+
+    @Test
+    void unregisterTwiceDoesNotThrow() {
+        var events = registeredEvents();
+
+        var fires = new AtomicInteger();
+        var registration = events.onClientTick(client -> fires.incrementAndGet());
+
+        registration.unregister();
+        registration.unregister();
+
+        fireTick();
+
+        assertEquals(0, fires.get());
+    }
+
+    @Test
+    void unregisteredListenerStops() {
+        var events = registeredEvents();
+
+        var fires = new AtomicInteger();
+        var registration = events.onClientTick(client -> fires.incrementAndGet());
+
+        fireTick();
+        assertEquals(1, fires.get());
+
+        registration.unregister();
+        fireTick();
+
+        assertEquals(1, fires.get(), "listener must not fire after unregister");
+    }
+
+    @Test
+    void disableRemovesRegistrations() {
         ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", new DummyExtension()))));
         var events = ExtensionManager.get("waypoints").orElseThrow().getContext().getEvents();
-        Event<Runnable> event = fakeEvent(new AtomicReference<>());
 
-        assertThrows(NullPointerException.class, () -> events.<Runnable>register(null, () -> {
-        }));
-        assertThrows(NullPointerException.class, () -> events.<Runnable>register(event, null));
+        var fires = new AtomicInteger();
+        events.onClientTick(client -> fires.incrementAndGet());
+
+        ExtensionManager.disable("waypoints");
+        fireTick();
+
+        assertEquals(0, fires.get(), "disable must leave no callback behind");
     }
 
     @Test
-    void registeredExtensionExposesEvents() {
-        DummyExtension extension = new DummyExtension();
-        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));
+    void disableRemovesAllTickTypes() {
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", new DummyExtension()))));
+        var events = ExtensionManager.get("waypoints").orElseThrow().getContext().getEvents();
 
-        var registered = ExtensionManager.get("waypoints").orElseThrow();
-        assertNotNull(registered.getContext().getEvents());
+        var fires = new AtomicInteger();
+        events.onClientTick(client -> fires.incrementAndGet());
+        events.onClientTickStart(client -> fires.incrementAndGet());
+        events.onLevelTickStart(level -> fires.incrementAndGet());
+        events.onLevelTickEnd(level -> fires.incrementAndGet());
+
+        ExtensionManager.disable("waypoints");
+        fireAllTicks();
+
+        assertEquals(0, fires.get(), "disable must clear every tick type");
     }
 
     @Test
-    void registeredExtensionEventsCanRegister() {
-        DummyExtension extension = new DummyExtension();
-        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));
+    void startTickFiresAndStops() {
+        var events = registeredEvents();
 
-        var captured = new AtomicReference<Object>();
-        @SuppressWarnings("unchecked")
-        Event<Runnable> event = fakeEvent(captured);
+        var fires = new AtomicInteger();
+        var registration = events.onClientTickStart(client -> fires.incrementAndGet());
 
-        Runnable listener = () -> {
-        };
-        ExtensionManager.get("waypoints").orElseThrow().getContext().getEvents().register(event, listener);
+        fireStartTick();
+        assertEquals(1, fires.get());
 
-        assertTrue(captured.get() == listener);
+        registration.unregister();
+        fireStartTick();
+
+        assertEquals(1, fires.get(), "listener must not fire after unregister");
     }
 
-    private static <T> Event<T> fakeEvent(AtomicReference<Object> captured) {
-        return new Event<>() {
-            @Override
-            public void register(T listener) {
-                captured.set(listener);
-            }
-        };
+    @Test
+    void levelTicksFireAndStop() {
+        var events = registeredEvents();
+
+        var fires = new AtomicInteger();
+        var start = events.onLevelTickStart(level -> fires.incrementAndGet());
+        var end = events.onLevelTickEnd(level -> fires.incrementAndGet());
+
+        fireLevelTicks();
+        assertEquals(2, fires.get());
+
+        start.unregister();
+        end.unregister();
+        fireLevelTicks();
+
+        assertEquals(2, fires.get(), "listeners must not fire after unregister");
+    }
+
+    @Test
+    void registrationsSurviveSchedulerSwap() {
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", new DummyExtension()))));
+        var events = ExtensionManager.get("waypoints").orElseThrow().getContext().getEvents();
+
+        var fires = new AtomicInteger();
+        events.onClientTick(client -> fires.incrementAndGet());
+
+        ExtensionManager.setScheduler(Runnable::run);
+        fireTick();
+
+        assertEquals(1, fires.get(), "context refresh must keep the events bridge");
+    }
+
+    private static org.mosaicmc.api.ExtensionEvents registeredEvents() {
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", new DummyExtension()))));
+        return ExtensionManager.get("waypoints").orElseThrow().getContext().getEvents();
+    }
+
+    private static void fireTick() {
+        for (var listener : ClientTickRegistry.endTickListeners()) {
+            listener.onEndTick(null);
+        }
+    }
+
+    private static void fireStartTick() {
+        for (var listener : ClientTickRegistry.startTickListeners()) {
+            listener.onStartTick(null);
+        }
+    }
+
+    private static void fireLevelTicks() {
+        for (var listener : ClientTickRegistry.startLevelTickListeners()) {
+            listener.onStartTick(null);
+        }
+        for (var listener : ClientTickRegistry.endLevelTickListeners()) {
+            listener.onEndTick(null);
+        }
+    }
+
+    private static void fireAllTicks() {
+        fireTick();
+        fireStartTick();
+        fireLevelTicks();
     }
 
     private static FabricLoader fakeLoader(List<EntrypointContainer<Extension>> containers) {
