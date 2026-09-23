@@ -2,8 +2,14 @@ package org.mosaicmc.test;
 
 import org.mosaicmc.extension.Extension;
 import org.mosaicmc.api.ExtensionMetadata;
+import org.mosaicmc.api.command.Command;
+import org.mosaicmc.api.command.CommandArgument;
+import org.mosaicmc.api.command.CommandArguments;
+import org.mosaicmc.api.command.CommandContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
 
 public class TestExtension extends Extension {
 	public static final Logger LOGGER = LoggerFactory.getLogger("mosaic-testmod");
@@ -45,6 +51,58 @@ public class TestExtension extends Extension {
 		return METADATA;
 	}
 
+	private static final CommandArgument<String> MESSAGE = CommandArguments.string("message");
+
+	private Command testmodRoot() {
+		return new Command() {
+			@Override
+			public String name() {
+				return "testmod";
+			}
+
+			@Override
+			public List<Command> children() {
+				return List.of(ping(), once());
+			}
+		};
+	}
+
+	private static Command ping() {
+		return new Command() {
+			@Override
+			public String name() {
+				return "ping";
+			}
+
+			@Override
+			public List<CommandArgument<?>> arguments() {
+				return List.of(MESSAGE);
+			}
+
+			@Override
+			public void execute(CommandContext context) {
+				context.sendMessage("§apong " + context.<String>arg(MESSAGE));
+			}
+		};
+	}
+
+	private Command once() {
+		return new Command() {
+			@Override
+			public String name() {
+				return "once";
+			}
+
+			@Override
+			public void execute(CommandContext context) {
+				// Unregisters the whole testmod root: removal is root-scoped,
+				// so a child removes itself by taking its tree with it.
+				context.sendMessage("§aone-shot command, unregistering /mosaic testmod");
+				TestExtension.this.getContext().getCommands().unregister(testmodRoot());
+			}
+		};
+	}
+
 	@Override
 	public void onEnable() {
 		LOGGER.info("[Mosaic Test] enabled: {}", getMetadata().getId());
@@ -52,6 +110,10 @@ public class TestExtension extends Extension {
 			getContext().getScheduler().execute(() -> LOGGER.info(
 					"[Mosaic Test] onEnable scheduled task running on thread {}",
 					Thread.currentThread().getName()));
+			// Idempotent: a disable clears these, so re-enabling re-registers.
+			getContext().getCommands().unregister(testmodRoot());
+			getContext().getCommands().register(testmodRoot());
+			LOGGER.info("[Mosaic Test] commands registered: /mosaic testmod <ping|once>");
 		} catch (IllegalStateException e) {
 			LOGGER.warn("[Mosaic Test] onEnable has no context yet", e);
 		}
@@ -61,6 +123,8 @@ public class TestExtension extends Extension {
 	public void onDisable() {
 		LOGGER.info("[Mosaic Test] disabled: {}", getMetadata().getId());
 		try {
+			getContext().getCommands().unregister(testmodRoot());
+			LOGGER.info("[Mosaic Test] commands unregistered (manager clears leftovers too)");
 			getContext().getScheduler().execute(() -> LOGGER.info(
 					"[Mosaic Test] onDisable scheduled task running on thread {}",
 					Thread.currentThread().getName()));

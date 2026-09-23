@@ -5,6 +5,7 @@ import net.fabricmc.api.ModInitializer;
 import net.minecraft.resources.Identifier;
 
 import org.mosaicmc.extension.ExtensionManager;
+import org.mosaicmc.internal.MosaicCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,7 +16,7 @@ public class Mosaic implements ModInitializer {
 	@Override
 	public void onInitialize() {
 		ExtensionManager.init();
-		LOGGER.info("Hello Fabric world!");
+		MosaicCommands.registerDefaults();
 	}
 
 	public static Identifier id(String path) {

@@ -55,8 +55,6 @@ public final class ExtensionEventsImpl implements ExtensionEvents {
         try {
             env = FabricLoader.getInstance().getEnvironmentType();
         } catch (RuntimeException e) {
-            // No loader runtime (unit tests: uninitialized or half-initialized
-            // loader): allow registration; tests drive the registry directly.
             return;
         }
         if (env != EnvType.CLIENT) {

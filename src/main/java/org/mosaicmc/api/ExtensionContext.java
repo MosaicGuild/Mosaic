@@ -1,5 +1,7 @@
 package org.mosaicmc.api;
 
+import org.mosaicmc.api.command.CommandManager;
+
 /**
  * Services Mosaic provides to one extension.
  *
@@ -22,4 +24,11 @@ public interface ExtensionContext {
      * @return the events bridge, never {@code null}
      */
     ExtensionEvents getEvents();
+
+    /**
+     * Provides access to the extension's commands under {@code /mosaic}.
+     *
+     * @return the command manager, never {@code null}
+     */
+    CommandManager getCommands();
 }

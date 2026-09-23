@@ -22,13 +22,6 @@
 			"org.mosaicmc.client.MosaicClient"
 		]
 	},
-	"mixins": [
-		"mosaic.mixins.json",
-		{
-			"config": "mosaic.client.mixins.json",
-			"environment": "client"
-		}
-	],
 	"depends": {
 		"fabricloader": ">=0.19.5",
 		"minecraft": "~26.3",
