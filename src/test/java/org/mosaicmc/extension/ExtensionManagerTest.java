@@ -142,6 +142,54 @@ class ExtensionManagerTest {
     }
 
     @Test
+    void repeatedEnableRunsOnEnableOnce() {
+        DummyExtension extension = new DummyExtension("waypoints");
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));
+
+        ExtensionManager.enable("waypoints");
+        ExtensionManager.enable("waypoints");
+        ExtensionManager.enable("waypoints");
+        ExtensionManager.enable("waypoints");
+
+        assertEquals(1, extension.enables);
+    }
+
+    @Test
+    void repeatedDisableRunsOnDisableOnce() {
+        DummyExtension extension = new DummyExtension("waypoints");
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));
+
+        ExtensionManager.enable("waypoints");
+        ExtensionManager.disable("waypoints");
+        ExtensionManager.disable("waypoints");
+
+        assertEquals(1, extension.disables);
+    }
+
+    @Test
+    void disableWithoutEnableDoesNothing() {
+        DummyExtension extension = new DummyExtension("waypoints");
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));
+
+        ExtensionManager.disable("waypoints");
+
+        assertEquals(0, extension.disables);
+    }
+
+    @Test
+    void failedEnableIsNotMarkedEnabled() {
+        DummyExtension extension = new DummyExtension("waypoints");
+        extension.failOnEnable = new IllegalStateException("broken enable");
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));
+
+        ExtensionManager.enable("waypoints");
+        extension.failOnEnable = null;
+        ExtensionManager.enable("waypoints");
+
+        assertEquals(2, extension.enables, "retry after failure must run again");
+    }
+
+    @Test
     void getExtensionsIsUnmodifiableSnapshot() {
         DummyExtension extension = new DummyExtension("waypoints");
         ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));

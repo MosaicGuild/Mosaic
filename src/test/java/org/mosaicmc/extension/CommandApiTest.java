@@ -350,11 +350,26 @@ class CommandApiTest {
         List<String> replies = new ArrayList<>();
         commands.register(leaf("ping", ctx -> replies.add("pong")));
 
+        ExtensionManager.enable("waypoints");
         ExtensionManager.disable("waypoints");
         CommandTree.dispatch("ping", replies::add);
 
         assertEquals(1, replies.size());
         assertTrue(replies.get(0).startsWith("Unknown command."), "was: " + replies.get(0));
+    }
+
+    @Test
+    void failedEnableRollsBackCommands() {
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", new RegisteringExtension()))));
+
+        ExtensionManager.enable("waypoints");
+
+        List<String> replies = new ArrayList<>();
+        CommandTree.dispatch("ping", replies::add);
+
+        assertEquals(1, replies.size());
+        assertTrue(replies.get(0).startsWith("Unknown command."),
+                "half-registered root must not survive a failed enable, was: " + replies.get(0));
     }
 
     @Test
@@ -431,13 +446,15 @@ class CommandApiTest {
         List<String> replies = new ArrayList<>();
         commands.register(leaf("ping", ctx -> replies.add("pong")));
 
+        CommandTree.dispatch("extension enable waypoints", replies::add);
         CommandTree.dispatch("extension disable waypoints", replies::add);
 
         assertEquals(1, extension.disables);
-        assertTrue(replies.get(0).contains("Disabled waypoints."), "was: " + replies.get(0));
+        assertEquals("§aEnabled waypoints.", replies.get(0));
+        assertTrue(replies.get(1).contains("Disabled waypoints."), "was: " + replies.get(1));
 
         CommandTree.dispatch("ping", replies::add);
-        assertTrue(replies.get(1).startsWith("Unknown command."), "was: " + replies.get(1));
+        assertTrue(replies.get(2).startsWith("Unknown command."), "was: " + replies.get(2));
     }
 
     @Test
@@ -569,6 +586,62 @@ class CommandApiTest {
                     }
                     return null;
                 });
+    }
+
+    /**
+     * Registers a root, then throws: proves a failed enable rolls back
+     * partial command registrations instead of leaking them.
+     */
+    private static final class RegisteringExtension extends Extension {
+        @Override
+        public ExtensionMetadata getMetadata() {
+            return new ExtensionMetadata() {
+                @Override
+                public String getId() {
+                    return "waypoints";
+                }
+
+                @Override
+                public String getName() {
+                    return "Dummy";
+                }
+
+                @Override
+                public String getDescription() {
+                    return "Dummy.";
+                }
+
+                @Override
+                public String getVersion() {
+                    return "0.0.0-test";
+                }
+
+                @Override
+                public String getAuthors() {
+                    return "tests";
+                }
+
+                @Override
+                public String getWebsite() {
+                    return "";
+                }
+            };
+        }
+
+        @Override
+        public void onEnable() {
+            getContext().getCommands().register(leaf("ping", ctx -> {
+            }));
+            throw new IllegalStateException("broken second step");
+        }
+
+        @Override
+        public void onDisable() {
+        }
+
+        @Override
+        public void onLoad() {
+        }
     }
 
     private static final class DummyExtension extends Extension {

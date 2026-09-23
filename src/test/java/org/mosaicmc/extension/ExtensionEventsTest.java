@@ -134,6 +134,7 @@ class ExtensionEventsTest {
         var fires = new AtomicInteger();
         events.onClientTick(client -> fires.incrementAndGet());
 
+        ExtensionManager.enable("waypoints");
         ExtensionManager.disable("waypoints");
         fireTick();
 
@@ -151,6 +152,7 @@ class ExtensionEventsTest {
         events.onLevelTickStart(level -> fires.incrementAndGet());
         events.onLevelTickEnd(level -> fires.incrementAndGet());
 
+        ExtensionManager.enable("waypoints");
         ExtensionManager.disable("waypoints");
         fireAllTicks();
 
@@ -189,6 +191,33 @@ class ExtensionEventsTest {
         fireLevelTicks();
 
         assertEquals(2, fires.get(), "listeners must not fire after unregister");
+    }
+
+    @Test
+    void failedEnableRollsBackRegistrations() {
+        FailableExtension extension = new FailableExtension();
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));
+
+        ExtensionManager.enable("waypoints");
+        fireTick();
+
+        assertEquals(1, extension.attempts);
+        assertEquals(0, extension.fires.get(),
+                "half-registered listeners must not survive a failed enable");
+    }
+
+    @Test
+    void failedEnableAllowsRetry() {
+        FailableExtension extension = new FailableExtension();
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));
+
+        ExtensionManager.enable("waypoints");
+        extension.fail = false;
+        ExtensionManager.enable("waypoints");
+        fireTick();
+
+        assertEquals(2, extension.attempts);
+        assertEquals(2, extension.fires.get(), "retry after failure must register cleanly");
     }
 
     @Test
@@ -259,6 +288,73 @@ class ExtensionEventsTest {
                     }
                     return null;
                 });
+    }
+
+    /**
+     * Registers two listeners, then throws: proves a failed enable rolls
+     * back partial registrations instead of leaking them.
+     */
+    private static final class FailableExtension extends Extension {
+        private int attempts;
+        private boolean fail = true;
+        private final AtomicInteger fires = new AtomicInteger();
+
+        @Override
+        public ExtensionMetadata getMetadata() {
+            return metadata("waypoints");
+        }
+
+        @Override
+        public void onEnable() {
+            attempts++;
+            getContext().getEvents().onClientTick(client -> fires.incrementAndGet());
+            getContext().getEvents().onClientTick(client -> fires.incrementAndGet());
+            if (fail) {
+                throw new IllegalStateException("broken third step");
+            }
+        }
+
+        @Override
+        public void onDisable() {
+        }
+
+        @Override
+        public void onLoad() {
+        }
+    }
+
+    private static ExtensionMetadata metadata(String id) {
+        return new ExtensionMetadata() {
+            @Override
+            public String getId() {
+                return id;
+            }
+
+            @Override
+            public String getName() {
+                return "Dummy";
+            }
+
+            @Override
+            public String getDescription() {
+                return "Dummy.";
+            }
+
+            @Override
+            public String getVersion() {
+                return "0.0.0-test";
+            }
+
+            @Override
+            public String getAuthors() {
+                return "tests";
+            }
+
+            @Override
+            public String getWebsite() {
+                return "";
+            }
+        };
     }
 
     private static final class DummyExtension extends Extension {

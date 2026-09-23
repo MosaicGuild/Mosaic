@@ -21,6 +21,7 @@ public class ExtensionManager {
     private static final Map<String, Extension> EXTENSIONS = new LinkedHashMap<>();
     private static final Map<String, ExtensionEventsImpl> EVENT_BRIDGES = new LinkedHashMap<>();
     private static final Map<String, ExtensionCommandManager> COMMAND_FACADES = new LinkedHashMap<>();
+    private static final Map<String, Boolean> ENABLED = new LinkedHashMap<>();
     private static volatile ExtensionScheduler scheduler = Runnable::run;
 
     // For the future me; This thing called init is for extension discovery
@@ -97,6 +98,7 @@ public class ExtensionManager {
         EXTENSIONS.clear();
         EVENT_BRIDGES.clear();
         COMMAND_FACADES.clear();
+        ENABLED.clear();
         ClientTickRegistry.clearAll();
         CommandTree.clearAll();
         scheduler = Runnable::run;
@@ -148,10 +150,16 @@ public class ExtensionManager {
             return;
         }
 
+        if (Boolean.TRUE.equals(ENABLED.get(id))) {
+            return;
+        }
+
         try {
             extension.onEnable();
+            ENABLED.put(id, true);
         } catch (Exception e) {
             LOGGER.error("Extension {} failed onEnable", id, e);
+            clearOwned(id);
         }
     }
 
@@ -163,14 +171,26 @@ public class ExtensionManager {
             return;
         }
 
+        if (!Boolean.TRUE.equals(ENABLED.get(id))) {
+            return;
+        }
+
         try {
             extension.onDisable();
         } catch (Exception e) {
             LOGGER.error("Extension {} failed onDisable", id, e);
+        } finally {
+            clearOwned(id);
+            ENABLED.put(id, false);
         }
+    }
 
-        // Safety net after the extension's own cleanup: no callback and no
-        // command left behind.
+    /**
+     * Removes an extension's owned registrations (events and commands),
+     * used both as the post-disable safety net and as rollback for a failed
+     * enable that registered halfway before throwing.
+     */
+    private static void clearOwned(String id) {
         ExtensionEventsImpl events = EVENT_BRIDGES.get(id);
         if (events != null) {
             events.clear();
