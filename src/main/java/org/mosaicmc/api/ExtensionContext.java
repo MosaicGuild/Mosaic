@@ -1,6 +1,7 @@
 package org.mosaicmc.api;
 
 import org.mosaicmc.api.command.CommandManager;
+import org.mosaicmc.api.settings.Settings;
 
 /**
  * Services Mosaic provides to one extension.
@@ -31,4 +32,13 @@ public interface ExtensionContext {
      * @return the command manager, never {@code null}
      */
     CommandManager getCommands();
+
+    /**
+     * Provides access to the extension's settings declarations.
+     *
+     * <p>Setting ids are scoped to the calling extension.
+     *
+     * @return the settings facade, never {@code null}
+     */
+    Settings getSettings();
 }

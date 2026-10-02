@@ -1,22 +1,36 @@
 package org.mosaicmc.client.screen;
 
+import java.util.ArrayList;
+import java.util.List;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.NonNull;
-import org.mosaicmc.Mosaic;
+import org.mosaicmc.api.settings.Setting;
 import org.mosaicmc.client.render.RoundedRectRenderState;
-
-import java.awt.Color;
+import org.mosaicmc.client.screen.settings.ApiSettingComponents;
+import org.mosaicmc.client.screen.settings.BooleanSettingComponent;
+import org.mosaicmc.client.screen.settings.ButtonSettingComponent;
+import org.mosaicmc.client.screen.settings.EnumSettingComponent;
+import org.mosaicmc.client.screen.settings.MosaicLayout;
+import org.mosaicmc.client.screen.settings.SettingComponent;
+import org.mosaicmc.client.screen.settings.SettingEntry;
+import org.mosaicmc.client.screen.settings.SettingsCategory;
+import org.mosaicmc.client.screen.settings.SettingsTheme;
+import org.mosaicmc.client.screen.settings.SliderSettingComponent;
+import org.mosaicmc.client.screen.settings.StaticTextComponent;
+import org.mosaicmc.extension.Extension;
+import org.mosaicmc.extension.ExtensionManager;
 
 public class MosaicScreen extends Screen {
 
-    private final Identifier ICON = Mosaic.id("icon");
-
-    private int centerHeight;
-    private int centerWidth;
+    private List<SettingsCategory> categories;
+    private int selectedIndex;
+    private double mainScroll;
+    private double sidebarScroll;
+    private SliderSettingComponent draggingSlider;
 
     public MosaicScreen(Component title) {
         super(title);
@@ -24,32 +38,237 @@ public class MosaicScreen extends Screen {
 
     @Override
     protected void init() {
-        centerHeight = height / 2;
-        centerWidth = width / 2;
+        if (categories == null) {
+            categories = buildCategories();
+            selectedIndex = 0;
+            mainScroll = 0;
+            sidebarScroll = 0;
+        }
+        draggingSlider = null;
+        clampScrolls();
     }
 
     @Override
+    protected void repositionElements() {
+        draggingSlider = null;
+        clampScrolls();
+    }
+
+    private void clampScrolls() {
+        if (categories == null || categories.isEmpty()) {
+            mainScroll = 0;
+            sidebarScroll = 0;
+            return;
+        }
+        MosaicLayout layout = MosaicLayout.compute(width, height);
+        mainScroll = clampScroll(mainScroll, contentHeight(selectedCategory()), layout.contentHeight());
+        sidebarScroll = clampScroll(sidebarScroll, sidebarContentHeight(), sidebarVisibleHeight(layout));
+    }
+
+    private static double clampScroll(double scroll, int content, int visible) {
+        if (visible <= 0) {
+            return 0;
+        }
+        double max = Math.max(0, content - visible);
+        return Math.max(0, Math.min(scroll, max));
+    }
+
+    private int clampedSelectedIndex() {
+        if (categories == null || categories.isEmpty()) {
+            return 0;
+        }
+        return Math.max(0, Math.min(selectedIndex, categories.size() - 1));
+    }
+
+    private SettingsCategory selectedCategory() {
+        if (categories == null || categories.isEmpty()) {
+            return null;
+        }
+        return categories.get(clampedSelectedIndex());
+    }
+
+    // ------------------------------------------------------------------
+    // Categories: built-in demo controls plus one category per discovered
+    // extension, backed live by the public Settings API (no copies, no UI
+    // types leaking into extensions).
+    // ------------------------------------------------------------------
+
+    private static List<SettingsCategory> buildCategories() {
+        List<SettingsCategory> result = new ArrayList<>(buildDemoCategories());
+
+        List<Extension> extensions = ExtensionManager.getExtensions();
+        if (extensions.isEmpty()) {
+            result.add(new SettingsCategory("extensions", "Extensions",
+                    List.of(new StaticTextComponent("No extensions registered."))));
+            return result;
+        }
+
+        for (Extension extension : extensions) {
+            String extensionId;
+            String title;
+            try {
+                extensionId = extension.getMetadata().getId();
+                title = extension.getMetadata().getName();
+            } catch (Exception e) {
+                continue;
+            }
+            if (extensionId == null || extensionId.isBlank()) {
+                continue;
+            }
+            if (title == null || title.isBlank()) {
+                title = extensionId;
+            }
+            List<Setting<?>> registered = ExtensionManager.getSettings(extensionId);
+            List<SettingComponent> rows = new ArrayList<>();
+            for (Setting<?> setting : registered) {
+                rows.add(ApiSettingComponents.fromSetting(setting));
+            }
+            if (rows.isEmpty()) {
+                rows.add(new StaticTextComponent("No settings registered by this extension."));
+            }
+            result.add(new SettingsCategory("ext:" + extensionId, title, rows));
+        }
+        return result;
+    }
+
+    private static List<SettingsCategory> buildDemoCategories() {
+        List<SettingsCategory> result = new ArrayList<>();
+
+        SettingEntry<Boolean> notifications = new SettingEntry<>("Enable notifications", true);
+        SettingEntry<Integer> uiScale = new SettingEntry<>("UI scale", 100);
+        SettingEntry<String> theme = new SettingEntry<>("Theme", "Dark");
+        List<SettingComponent> general = new ArrayList<>();
+        general.add(new BooleanSettingComponent(notifications));
+        general.add(new SliderSettingComponent(uiScale, 50, 150));
+        general.add(new EnumSettingComponent(theme, List.of("Dark", "Midnight", "System")));
+        general.add(new ButtonSettingComponent("Send test notification", "Send", () -> {
+        }));
+        result.add(new SettingsCategory("general", "General", general));
+
+        SettingEntry<Boolean> tooltips = new SettingEntry<>("Show tooltips", true);
+        SettingEntry<Integer> animSpeed = new SettingEntry<>("Animation speed", 60);
+        List<SettingComponent> face = new ArrayList<>();
+        face.add(new BooleanSettingComponent(tooltips));
+        face.add(new SliderSettingComponent(animSpeed, 0, 100));
+        face.add(new ButtonSettingComponent("Preview animation", "Preview", () -> {
+        }));
+        result.add(new SettingsCategory("interface", "Interface", face));
+
+        SettingEntry<Boolean> reduceAnim = new SettingEntry<>("Reduce background animations", false);
+        SettingEntry<Integer> fpsLimit = new SettingEntry<>("Frame-rate limit", 120);
+        List<SettingComponent> perf = new ArrayList<>();
+        perf.add(new BooleanSettingComponent(reduceAnim));
+        perf.add(new SliderSettingComponent(fpsLimit, 30, 240));
+        perf.add(new ButtonSettingComponent("Clear demo caches", "Clear", () -> {
+        }));
+        result.add(new SettingsCategory("performance", "Performance", perf));
+
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // Layout: single source of truth for rendering and input.
+    // ------------------------------------------------------------------
+
+    private record ContentRow(SettingComponent component, int x, int y, int width, int height) {
+    }
+
+    private record SidebarRow(int index, int x, int y, int width, int height) {
+    }
+
+    private int contentHeight(SettingsCategory category) {
+        if (category == null) {
+            return 0;
+        }
+        int total = 0;
+        List<SettingComponent> components = category.components();
+        for (int i = 0; i < components.size(); i++) {
+            total += components.get(i).preferredHeight();
+            if (i < components.size() - 1) {
+                total += SettingsTheme.ROW_GAP;
+            }
+        }
+        return total;
+    }
+
+    private int sidebarContentHeight() {
+        if (categories == null) {
+            return 0;
+        }
+        int pad = SettingsTheme.SIDEBAR_PAD;
+        int rows = categories.size() * SettingsTheme.SIDEBAR_ROW_HEIGHT
+                + Math.max(0, categories.size() - 1) * SettingsTheme.SIDEBAR_ROW_GAP;
+        return pad * 2 + rows;
+    }
+
+    private int sidebarVisibleHeight(MosaicLayout layout) {
+        return Math.max(0, layout.sideBottom() - layout.sideTop());
+    }
+
+    private List<ContentRow> contentRows(MosaicLayout layout, double scroll) {
+        List<ContentRow> rows = new ArrayList<>();
+        SettingsCategory category = selectedCategory();
+        if (category == null) {
+            return rows;
+        }
+        int w = layout.contentWidth();
+        int y = (int) Math.round(layout.contentTop() - scroll);
+        for (SettingComponent component : category.components()) {
+            int h = component.preferredHeight();
+            rows.add(new ContentRow(component, layout.contentLeft(), y, w, h));
+            y += h + SettingsTheme.ROW_GAP;
+        }
+        return rows;
+    }
+
+    private List<SidebarRow> sidebarRows(MosaicLayout layout, double scroll) {
+        List<SidebarRow> rows = new ArrayList<>();
+        if (categories == null) {
+            return rows;
+        }
+        int pad = SettingsTheme.SIDEBAR_PAD;
+        int rowH = SettingsTheme.SIDEBAR_ROW_HEIGHT;
+        int gap = SettingsTheme.SIDEBAR_ROW_GAP;
+        int w = layout.sideRight() - layout.sideLeft() - pad * 2;
+        int y = (int) Math.round(layout.sideTop() + pad - scroll);
+        for (int i = 0; i < categories.size(); i++) {
+            rows.add(new SidebarRow(i, layout.sideLeft() + pad, y, w, rowH));
+            y += rowH + gap;
+        }
+        return rows;
+    }
+
+    private static boolean visibleInContent(ContentRow row, MosaicLayout layout) {
+        return row.y() + row.height() > layout.contentTop() && row.y() < layout.contentBottom();
+    }
+
+    private static boolean visibleInSidebar(SidebarRow row, MosaicLayout layout) {
+        return row.y() + row.height() > layout.sideTop() && row.y() < layout.sideBottom();
+    }
+
+    // ------------------------------------------------------------------
+    // Rendering (preserves the original approach and visual structure).
+    // ------------------------------------------------------------------
+
+    @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
-        int gap = 5;
-        int cornerRadius = 4;
+        if (categories == null) {
+            categories = buildCategories();
+        }
+        MosaicLayout layout = MosaicLayout.compute(width, height);
+        double effectiveMain = clampScroll(mainScroll, contentHeight(selectedCategory()), layout.contentHeight());
+        double effectiveSide = clampScroll(sidebarScroll, sidebarContentHeight(), sidebarVisibleHeight(layout));
 
-        int baseColor = new Color(10, 10, 10).getRGB();
+        int cornerRadius = SettingsTheme.CORNER_RADIUS;
+        int baseColor = 0xFF0A0A0A;
 
-        int baseLeft = centerWidth - 200;
-        int baseRight = centerWidth + 200;
-        int baseTop = centerHeight - 100;
-        int baseBottom = centerHeight + 100;
+        base(graphics, layout.mainLeft(), layout.mainTop(), layout.mainRight(), layout.mainBottom(), cornerRadius, baseColor);
+        sideBar(graphics, layout.sideLeft(), layout.sideTop(), layout.sideRight(), layout.sideBottom(), cornerRadius, baseColor);
+        topBar(graphics, layout.topLeft(), layout.topTop(), layout.topRight(), layout.topBottom(), cornerRadius, baseColor);
 
-        int sideBarRight = baseLeft - gap;
-        int sideBarLeft = sideBarRight - 25;
-
-        int topBarBottom = baseTop - gap;
-        int topBarTop = topBarBottom - 25;
-
-        base(graphics, baseLeft, baseTop, baseRight, baseBottom, cornerRadius, baseColor);
-        sideBar(graphics, sideBarLeft, baseTop, sideBarRight, baseBottom, cornerRadius, baseColor);
-        topBar(graphics, baseLeft, topBarTop, baseRight, topBarBottom, cornerRadius, baseColor);
-        intersectionOfBars(graphics, sideBarLeft, topBarTop, sideBarRight, topBarBottom, cornerRadius, baseColor);
+        renderSidebar(graphics, layout, effectiveSide, mouseX, mouseY);
+        renderTopBarTitle(graphics, layout);
+        renderContent(graphics, layout, effectiveMain, mouseX, mouseY);
     }
 
     private void base(GuiGraphicsExtractor graphics, int left, int top, int right, int bottom, int radius, int color) {
@@ -64,12 +283,210 @@ public class MosaicScreen extends Screen {
         RoundedRectRenderState.fill(graphics, left, top, right, bottom, radius, color);
     }
 
-    private void intersectionOfBars(GuiGraphicsExtractor graphics, int left, int top, int right, int bottom, int radius, int color) {
-        int iconSize = 16;
-        int iconX = left + (right - left - iconSize) / 2;
-        int iconY = top + (bottom - top - iconSize) / 2;
+    private void renderSidebar(GuiGraphicsExtractor graphics, MosaicLayout layout, double scroll, int mouseX, int mouseY) {
+        if (categories == null) {
+            return;
+        }
+        graphics.enableScissor(layout.sideLeft(), layout.sideTop(), layout.sideRight(), layout.sideBottom());
+        try {
+            int activeIndex = clampedSelectedIndex();
+            for (SidebarRow row : sidebarRows(layout, scroll)) {
+                if (!visibleInSidebar(row, layout)) {
+                    continue;
+                }
+                boolean active = row.index() == activeIndex;
+                boolean hovered = mouseX >= row.x() && mouseX < row.x() + row.width()
+                        && mouseY >= row.y() && mouseY < row.y() + row.height();
+                if (active) {
+                    RoundedRectRenderState.fill(graphics, row.x(), row.y(),
+                            row.x() + row.width(), row.y() + row.height(), 4, SettingsTheme.VIOLET);
+                } else if (hovered) {
+                    RoundedRectRenderState.fill(graphics, row.x(), row.y(),
+                            row.x() + row.width(), row.y() + row.height(), 4, SettingsTheme.ROW_HOVER);
+                }
+                String title = categories.get(row.index()).title();
+                int maxText = row.width() - 12;
+                if (maxText > 10 && font.width(title) > maxText) {
+                    title = font.plainSubstrByWidth(title, maxText - 3) + "...";
+                }
+                int color = active ? SettingsTheme.TEXT_PRIMARY
+                        : hovered ? SettingsTheme.TEXT_PRIMARY : SettingsTheme.TEXT_SECONDARY;
+                int textW = font.width(title);
+                int textX = row.x() + 6;
+                int textY = row.y() + (row.height() - font.lineHeight) / 2;
+                graphics.text(font, title, textX, textY, color);
+                @SuppressWarnings("unused")
+                int ignored = textW;
+            }
+        } finally {
+            graphics.disableScissor();
+        }
+    }
 
-        RoundedRectRenderState.fill(graphics, left, top, right, bottom, radius, color);
-        graphics.blitSprite(RenderPipelines.GUI_TEXTURED, ICON, iconX, iconY, iconSize, iconSize);
+    private void renderTopBarTitle(GuiGraphicsExtractor graphics, MosaicLayout layout) {
+        SettingsCategory category = selectedCategory();
+        String title = category == null ? "Mosaic" : "Mosaic — " + category.title();
+        int maxW = layout.topRight() - layout.topLeft() - 16;
+        if (maxW > 20 && font.width(title) > maxW) {
+            title = font.plainSubstrByWidth(title, maxW - 3) + "...";
+        }
+        int barH = layout.topBottom() - layout.topTop();
+        graphics.text(font, title, layout.topLeft() + 10,
+                layout.topTop() + (barH - font.lineHeight) / 2, SettingsTheme.TEXT_PRIMARY);
+    }
+
+    private void renderContent(GuiGraphicsExtractor graphics, MosaicLayout layout, double scroll, int mouseX, int mouseY) {
+        List<ContentRow> rows = contentRows(layout, scroll);
+        if (rows.isEmpty()) {
+            return;
+        }
+        graphics.enableScissor(layout.contentLeft(), layout.contentTop(), layout.contentRight(), layout.contentBottom());
+        try {
+            for (ContentRow row : rows) {
+                if (!visibleInContent(row, layout)) {
+                    continue;
+                }
+                row.component().render(graphics, font, row.x(), row.y(), row.width(), row.height(), mouseX, mouseY);
+            }
+        } finally {
+            graphics.disableScissor();
+        }
+
+        int total = contentHeight(selectedCategory());
+        int visible = layout.contentHeight();
+        if (total > visible && visible > 20) {
+            double max = total - visible;
+            double fraction = max <= 0 ? 0 : scroll / max;
+            int barW = 4;
+            int barX = layout.mainRight() - 6;
+            int trackTop = layout.contentTop();
+            int trackBottom = layout.contentBottom();
+            int trackH = trackBottom - trackTop;
+            int thumbH = Math.max(16, (int) (trackH * ((double) visible / total)));
+            int thumbY = trackTop + (int) ((trackH - thumbH) * Math.max(0, Math.min(1, fraction)));
+            RoundedRectRenderState.fill(graphics, barX, trackTop, barX + barW, trackBottom, 2, SettingsTheme.SCROLLBAR_BG);
+            RoundedRectRenderState.fill(graphics, barX, thumbY, barX + barW, thumbY + thumbH, 2, SettingsTheme.SCROLLBAR_THUMB);
+        }
+    }
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (categories == null) {
+            return super.mouseClicked(event, doubleClick);
+        }
+
+        double mx = event.x();
+        double my = event.y();
+        int button = event.button();
+        MosaicLayout layout = MosaicLayout.compute(width, height);
+
+        double effectiveSide = clampScroll(sidebarScroll, sidebarContentHeight(), sidebarVisibleHeight(layout));
+        for (SidebarRow row : sidebarRows(layout, effectiveSide)) {
+            if (!visibleInSidebar(row, layout)) {
+                continue;
+            }
+            if (mx >= row.x() && mx < row.x() + row.width() && my >= row.y() && my < row.y() + row.height()) {
+                if (row.index() != clampedSelectedIndex()) {
+                    selectedIndex = row.index();
+                    mainScroll = 0;
+                }
+                return true;
+            }
+        }
+
+        double effectiveMain = clampScroll(mainScroll, contentHeight(selectedCategory()), layout.contentHeight());
+        for (ContentRow row : contentRows(layout, effectiveMain)) {
+            if (!visibleInContent(row, layout)) {
+                continue;
+            }
+            if (mx >= row.x() && mx < row.x() + row.width() && my >= row.y() && my < row.y() + row.height()) {
+                boolean consumed = row.component().mouseClicked(mx, my, button, row.x(), row.y(), row.width(), row.height());
+                if (consumed) {
+                    if (row.component() instanceof SliderSettingComponent slider && slider.isLeftClick(button)) {
+                        draggingSlider = slider;
+                    }
+                    return true;
+                }
+            }
+        }
+
+        return super.mouseClicked(event, doubleClick);
+    }
+
+    @Override
+    public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        if (draggingSlider != null) {
+            MosaicLayout layout = MosaicLayout.compute(width, height);
+            double effectiveMain = clampScroll(mainScroll, contentHeight(selectedCategory()), layout.contentHeight());
+            for (ContentRow row : contentRows(layout, effectiveMain)) {
+                if (row.component() == draggingSlider) {
+                    row.component().mouseDragged(event.x(), event.y(), event.button(),
+                            row.x(), row.y(), row.width(), row.height());
+                    return true;
+                }
+            }
+            // Slider scrolled out of view mid-drag: keep consuming so the drag
+            // does not leak to other behavior, but there is nothing to update.
+            return true;
+        }
+        return super.mouseDragged(event, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        if (draggingSlider != null) {
+            draggingSlider = null;
+            return true;
+        }
+        return super.mouseReleased(event);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        MosaicLayout layout = MosaicLayout.compute(width, height);
+        boolean overMain = mouseX >= layout.mainLeft() && mouseX < layout.mainRight()
+                && mouseY >= layout.mainTop() && mouseY < layout.mainBottom();
+        if (overMain) {
+            int total = contentHeight(selectedCategory());
+            int visible = layout.contentHeight();
+            if (total > visible) {
+                mainScroll = clampScroll(mainScroll - scrollY * 12, total, visible);
+                return true;
+            }
+            return false;
+        }
+        boolean overSide = mouseX >= layout.sideLeft() && mouseX < layout.sideRight()
+                && mouseY >= layout.sideTop() && mouseY < layout.sideBottom();
+        if (overSide) {
+            int total = sidebarContentHeight();
+            int visible = sidebarVisibleHeight(layout);
+            if (total > visible) {
+                sidebarScroll = clampScroll(sidebarScroll - scrollY * 12, total, visible);
+                return true;
+            }
+            return false;
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    @Override
+    public boolean keyPressed(KeyEvent event) {
+        if (event.isEscape()) {
+            return super.keyPressed(event);
+        }
+        if (categories == null || categories.isEmpty()) {
+            return super.keyPressed(event);
+        }
+        if (event.isUp()) {
+            selectedIndex = (clampedSelectedIndex() - 1 + categories.size()) % categories.size();
+            mainScroll = 0;
+            return true;
+        }
+        if (event.isDown()) {
+            selectedIndex = (clampedSelectedIndex() + 1) % categories.size();
+            mainScroll = 0;
+            return true;
+        }
+        return super.keyPressed(event);
     }
 }

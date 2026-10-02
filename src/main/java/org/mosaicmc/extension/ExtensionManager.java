@@ -9,11 +9,13 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.entrypoint.EntrypointContainer;
 import org.mosaicmc.Mosaic;
 import org.mosaicmc.api.ExtensionScheduler;
+import org.mosaicmc.api.settings.Setting;
 import org.mosaicmc.internal.ClientTickRegistry;
 import org.mosaicmc.internal.CommandTree;
 import org.mosaicmc.internal.ExtensionCommandManager;
 import org.mosaicmc.internal.ExtensionContextImpl;
 import org.mosaicmc.internal.ExtensionEventsImpl;
+import org.mosaicmc.internal.ExtensionSettingsManager;
 import org.slf4j.Logger;
 
 public class ExtensionManager {
@@ -21,6 +23,7 @@ public class ExtensionManager {
     private static final Map<String, Extension> EXTENSIONS = new LinkedHashMap<>();
     private static final Map<String, ExtensionEventsImpl> EVENT_BRIDGES = new LinkedHashMap<>();
     private static final Map<String, ExtensionCommandManager> COMMAND_FACADES = new LinkedHashMap<>();
+    private static final Map<String, ExtensionSettingsManager> SETTINGS = new LinkedHashMap<>();
     private static final Map<String, Boolean> ENABLED = new LinkedHashMap<>();
     private static volatile ExtensionScheduler scheduler = Runnable::run;
 
@@ -51,9 +54,10 @@ public class ExtensionManager {
 
             ExtensionEventsImpl events = new ExtensionEventsImpl();
             ExtensionCommandManager commands = new ExtensionCommandManager();
+            ExtensionSettingsManager settings = new ExtensionSettingsManager();
 
             try {
-                extension.setContext(new ExtensionContextImpl(scheduler, events, commands));
+                extension.setContext(new ExtensionContextImpl(scheduler, events, commands, settings));
             } catch (Exception e) {
                 LOGGER.error("Failed to inject context into extension from {}", modId, e);
                 continue;
@@ -81,6 +85,8 @@ public class ExtensionManager {
             EXTENSIONS.put(id, extension);
             EVENT_BRIDGES.put(id, events);
             COMMAND_FACADES.put(id, commands);
+            settings.setOwner(id);
+            SETTINGS.put(id, settings);
 
             try {
                 extension.onLoad();
@@ -98,6 +104,7 @@ public class ExtensionManager {
         EXTENSIONS.clear();
         EVENT_BRIDGES.clear();
         COMMAND_FACADES.clear();
+        SETTINGS.clear();
         ENABLED.clear();
         ClientTickRegistry.clearAll();
         CommandTree.clearAll();
@@ -124,7 +131,9 @@ public class ExtensionManager {
                         entry.getKey(), key -> new ExtensionEventsImpl());
                 ExtensionCommandManager commands = COMMAND_FACADES.computeIfAbsent(
                         entry.getKey(), key -> new ExtensionCommandManager());
-                entry.getValue().setContext(new ExtensionContextImpl(scheduler, events, commands));
+                ExtensionSettingsManager settings = SETTINGS.computeIfAbsent(
+                        entry.getKey(), ExtensionSettingsManager::new);
+                entry.getValue().setContext(new ExtensionContextImpl(scheduler, events, commands, settings));
                 refreshed++;
             } catch (Exception e) {
                 LOGGER.error("Failed to refresh context", e);
@@ -140,6 +149,24 @@ public class ExtensionManager {
 
     public static Optional<Extension> get(String id) {
         return Optional.ofNullable(EXTENSIONS.get(id));
+    }
+
+    /**
+     * Every setting the given extension registered, in registration order.
+     *
+     * <p>Settings are declarations, not listeners: they survive
+     * {@link #disable} and are only removed when the extension itself is
+     * forgotten (currently only in tests via reset).
+     *
+     * @param id the extension id, must not be {@code null}
+     * @return an unmodifiable snapshot, or an empty list for unknown ids
+     */
+    public static List<Setting<?>> getSettings(String id) {
+        ExtensionSettingsManager settings = SETTINGS.get(id);
+        if (settings == null) {
+            return List.of();
+        }
+        return settings.all();
     }
 
     public static void enable(String id) {
