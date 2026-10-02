@@ -2,7 +2,13 @@
 # covering both the root project and the testmod.
 
 name: test_mod
-on: [pull_request, push]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   test:

@@ -4,7 +4,13 @@
 # against bad commits.
 
 name: build_mod
-on: [pull_request, push]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build:
