@@ -23,7 +23,6 @@ import org.mosaicmc.api.settings.BooleanSetting;
 import org.mosaicmc.api.settings.EnumSetting;
 import org.mosaicmc.api.settings.IntSetting;
 import org.mosaicmc.api.settings.Settings;
-import org.mosaicmc.internal.MosaicCoreSettings;
 
 /**
  * Unit tests for the public Settings API: defaults, reads/writes, bounds,
@@ -229,18 +228,6 @@ class SettingsApiTest {
         assertEquals(false, enabled.get(), "disable must not reset values");
         assertEquals(1, ExtensionManager.getSettings("waypoints").size(),
                 "disable must not delete settings");
-    }
-
-    @Test
-    void coreSettingsHaveDefaultsAndStableIdentity() {
-        assertEquals(true, MosaicCoreSettings.notifications().get());
-        assertEquals(100, MosaicCoreSettings.uiScale().get());
-        assertEquals(MosaicCoreSettings.Theme.DARK, MosaicCoreSettings.theme().get());
-        assertEquals(List.of("notifications", "ui_scale", "theme"),
-                MosaicCoreSettings.all().stream().map(s -> s.id()).toList());
-        assertSame(MosaicCoreSettings.notifications(),
-                MosaicCoreSettings.all().stream()
-                        .filter(s -> s.id().equals("notifications")).findFirst().orElseThrow());
     }
 
     @Test

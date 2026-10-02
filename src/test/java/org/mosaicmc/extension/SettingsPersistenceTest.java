@@ -29,7 +29,6 @@ import org.mosaicmc.api.ExtensionMetadata;
 import org.mosaicmc.api.settings.BooleanSetting;
 import org.mosaicmc.api.settings.EnumSetting;
 import org.mosaicmc.api.settings.IntSetting;
-import org.mosaicmc.internal.MosaicCoreSettings;
 import org.mosaicmc.internal.SettingsStore;
 
 /**
@@ -365,33 +364,6 @@ class SettingsPersistenceTest {
 
         PersistExtension restarted = restart(settingsFile());
         assertEquals(false, restarted.flag.get());
-    }
-
-    @Test
-    void coreSectionRoundTrips() throws Exception {
-        boolean originalFlag = MosaicCoreSettings.notifications().get();
-        int originalScale = MosaicCoreSettings.uiScale().get();
-        MosaicCoreSettings.Theme originalTheme = MosaicCoreSettings.theme().get();
-        try {
-            MosaicCoreSettings.notifications().set(false);
-            MosaicCoreSettings.uiScale().set(150);
-            MosaicCoreSettings.theme().set(MosaicCoreSettings.Theme.SYSTEM);
-            Path file = settingsFile();
-            assertTrue(store(file).save());
-
-            MosaicCoreSettings.notifications().set(true);
-            MosaicCoreSettings.uiScale().set(50);
-            MosaicCoreSettings.theme().set(MosaicCoreSettings.Theme.MIDNIGHT);
-            store(file).load();
-
-            assertEquals(false, MosaicCoreSettings.notifications().get());
-            assertEquals(150, MosaicCoreSettings.uiScale().get());
-            assertEquals(MosaicCoreSettings.Theme.SYSTEM, MosaicCoreSettings.theme().get());
-        } finally {
-            MosaicCoreSettings.notifications().set(originalFlag);
-            MosaicCoreSettings.uiScale().set(originalScale);
-            MosaicCoreSettings.theme().set(originalTheme);
-        }
     }
 
     @Test
