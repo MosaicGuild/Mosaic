@@ -95,7 +95,7 @@ public class TestExtension extends Extension {
 
 			@Override
 			public void execute(CommandContext context) {
-				context.sendMessage("§apong " + context.<String>arg(MESSAGE));
+				context.sendMessage("§apong " + context.arg(MESSAGE));
 			}
 		};
 	}
@@ -109,8 +109,6 @@ public class TestExtension extends Extension {
 
 			@Override
 			public void execute(CommandContext context) {
-				// Unregisters the whole testmod root: removal is root-scoped,
-				// so a child removes itself by taking its tree with it.
 				context.sendMessage("§aone-shot command, unregistering /mosaic testmod");
 				TestExtension.this.getContext().getCommands().unregister(testmodRoot());
 			}
@@ -121,14 +119,13 @@ public class TestExtension extends Extension {
 	public void onEnable() {
 		LOGGER.info("[Mosaic Test] enabled: {}", getMetadata().getId());
 		try {
+			getContext().getScheduler().execute(() -> LOGGER.info(
+					"[Mosaic Test] onEnable scheduled task running on thread {}",
+					Thread.currentThread().getName()));
 			if (announcements != null && announcements.get()) {
 				LOGGER.info("[Mosaic Test] radar settings: radius={} mode={}",
 						radarRadius.get(), radarMode.get());
 			}
-			getContext().getScheduler().execute(() -> LOGGER.info(
-					"[Mosaic Test] onEnable scheduled task running on thread {}",
-					Thread.currentThread().getName()));
-			// Idempotent: a disable clears these, so re-enabling re-registers.
 			getContext().getCommands().unregister(testmodRoot());
 			getContext().getCommands().register(testmodRoot());
 			LOGGER.info("[Mosaic Test] commands registered: /mosaic testmod <ping|once>");
@@ -157,9 +154,12 @@ public class TestExtension extends Extension {
 				getMetadata().getId(), Thread.currentThread().getName());
 		try {
 			// Example settings declared with Mosaic's public API only: no
-			// Fabric internals, no UI classes. Values edited in the settings
-			// screen are read back in onEnable above.
+			// Fabric internals, no UI classes. The section call opts this
+			// extension into a sidebar entry; without it the settings stay
+			// programmatic-only. Values edited in the settings screen are
+			// read back in onEnable above.
 			var settings = getContext().getSettings();
+			settings.registerSection("Test Extension");
 			announcements = settings.registerBoolean(
 					"announcements", "Enable announcements",
 					"Sends a chat message when a waypoint is reached.", true);
@@ -172,12 +172,6 @@ public class TestExtension extends Extension {
 			LOGGER.info("[Mosaic Test] context OK, scheduler={}",
 					scheduler.getClass().getSimpleName());
 
-			// Server-safe self-check: hop from a background thread through the
-			// ExtensionScheduler. At onLoad time the client initializer has not
-			// run yet, so the scheduler is still the inline default and the
-			// runner is expected to be the bg thread itself. After
-			// MosaicClient installs the real client scheduler,
-			// TestExtensionClient repeats the check with visible chat output.
 			String callerThread = Thread.currentThread().getName();
 			Thread bg = new Thread(() -> {
 				String bgThread = Thread.currentThread().getName();

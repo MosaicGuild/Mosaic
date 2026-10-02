@@ -57,6 +57,12 @@ public abstract class Extension {
     /**
      * This runs once the extension has been enabled by the user.
      * You may use this to register your changes.
+     *
+     * <p>Runs at most once per enable: repeated or concurrent enable
+     * requests while already enabled (or enabling) are ignored. If this
+     * method throws, Mosaic logs the error, removes the commands and events
+     * registered during that call, and leaves the extension disabled, so a
+     * later enable retries cleanly.
      */
     public abstract void onEnable();
 
@@ -66,12 +72,19 @@ public abstract class Extension {
      * <p>Prefer explicit {@code unregister()} here. As a safety net, Mosaic
      * also removes the extension's remaining managed registrations after
      * this method returns, so no callback is left behind either way.
+     * That cleanup (and the transition back to disabled) happens even if
+     * this method throws.
      */
     public abstract void onDisable();
 
     /**
      * This runs once the extension has been loaded by the extension manager.
      * Use this to add the extension menus and entry in the GUI.
+     *
+     * <p>Declare settings here; they survive later disable/enable cycles.
+     * If this method throws, Mosaic logs the error and unregisters the
+     * extension entirely (including anything it managed to register), so a
+     * half-loaded extension can never be enabled.
      */
     public abstract void onLoad();
 }

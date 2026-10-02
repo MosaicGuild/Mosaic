@@ -43,8 +43,29 @@ import java.util.Optional;
  *
  * <p>Settings are declarations, not listeners: disabling an extension does
  * not delete its settings or reset their values.
+ *
+ * <p>No settings section is created automatically. To show this
+ * extension's settings in Mosaic's settings screen, ask for a section:
+ *
+ * <pre>{@code
+ * settings.registerSection("Radar");
+ * }</pre>
  */
 public interface Settings {
+
+    /**
+     * Asks for a section showing this extension's settings in Mosaic's
+     * settings screen, under the given title. Without this call the
+     * extension's settings stay programmatic-only: no sidebar entry is
+     * created for them.
+     *
+     * @param title the section title shown in the UI, must not be {@code null} or blank
+     * @throws NullPointerException if {@code title} is {@code null}
+     * @throws IllegalArgumentException if {@code title} is blank, or this
+     * extension already registered a section
+     */
+    void registerSection(String title);
+
 
     /**
      * Declares a boolean setting.

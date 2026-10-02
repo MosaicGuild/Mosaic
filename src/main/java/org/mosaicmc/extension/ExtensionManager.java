@@ -24,8 +24,32 @@ public class ExtensionManager {
     private static final Map<String, ExtensionEventsImpl> EVENT_BRIDGES = new LinkedHashMap<>();
     private static final Map<String, ExtensionCommandManager> COMMAND_FACADES = new LinkedHashMap<>();
     private static final Map<String, ExtensionSettingsManager> SETTINGS = new LinkedHashMap<>();
-    private static final Map<String, Boolean> ENABLED = new LinkedHashMap<>();
+    /**
+     * Lifecycle states. Guarded by {@link #STATE_LOCK}, which is held only
+     * for state reads and transitions — never while running extension
+     * callbacks, so a misbehaving extension cannot deadlock the manager.
+     */
+    private static final Map<String, LifecycleState> STATES = new LinkedHashMap<>();
+    private static final Object STATE_LOCK = new Object();
     private static volatile ExtensionScheduler scheduler = Runnable::run;
+
+    /**
+     * Minimal per-extension lifecycle. Transient states exist so concurrent
+     * enable/disable calls resolve atomically: exactly one caller wins the
+     * transition and runs the callback, the losers return without effect.
+     */
+    private enum LifecycleState {
+        DISABLED,
+        ENABLING,
+        ENABLED,
+        DISABLING
+    }
+
+    /** Must only be called while holding {@link #STATE_LOCK}. */
+    private static LifecycleState stateLocked(String id) {
+        LifecycleState state = STATES.get(id);
+        return state == null ? LifecycleState.DISABLED : state;
+    }
 
     // For the future me; This thing called init is for extension discovery
     public static void init() {
@@ -91,7 +115,17 @@ public class ExtensionManager {
             try {
                 extension.onLoad();
             } catch (Exception e) {
-                LOGGER.error("Extension {} failed onLoad", id, e);
+                // A failed load must not leave a half-initialized extension
+                // behind: drop its bridges (clearing anything it managed to
+                // register first) and skip it like any other discovery
+                // failure, so it can never be enabled.
+                LOGGER.error("Extension {} failed onLoad, unregistering", id, e);
+                events.clear();
+                commands.clear();
+                EXTENSIONS.remove(id);
+                EVENT_BRIDGES.remove(id);
+                COMMAND_FACADES.remove(id);
+                SETTINGS.remove(id);
             }
         }
     }
@@ -105,7 +139,9 @@ public class ExtensionManager {
         EVENT_BRIDGES.clear();
         COMMAND_FACADES.clear();
         SETTINGS.clear();
-        ENABLED.clear();
+        synchronized (STATE_LOCK) {
+            STATES.clear();
+        }
         ClientTickRegistry.clearAll();
         CommandTree.clearAll();
         scheduler = Runnable::run;
@@ -116,8 +152,8 @@ public class ExtensionManager {
      * refreshes the context of already registered extensions.
      * The client initializer installs the real client-thread scheduler here;
      * the default simply runs tasks inline(safe for unit tests / servers).
-     * Each extension keeps its events bridge and command facade, so
-     * registrations survive the swap.
+     * Each extension keeps its events bridge, command facade, and settings
+     * manager, so registrations and values survive the swap.
      */
     public static void setScheduler(ExtensionScheduler scheduler) {
         if (scheduler == null) {
@@ -152,6 +188,20 @@ public class ExtensionManager {
     }
 
     /**
+     * Whether the given extension is currently enabled: true only after a
+     * successful {@link #enable} without a later {@link #disable}.
+     * Unknown ids report false, never throw.
+     *
+     * @param id the extension id, must not be {@code null}
+     * @return true when enabled
+     */
+    public static boolean isEnabled(String id) {
+        synchronized (STATE_LOCK) {
+            return stateLocked(id) == LifecycleState.ENABLED;
+        }
+    }
+
+    /**
      * Every setting the given extension registered, in registration order.
      *
      * <p>Settings are declarations, not listeners: they survive
@@ -169,6 +219,35 @@ public class ExtensionManager {
         return settings.all();
     }
 
+    /**
+     * The settings-section title the given extension asked for, if any.
+     * Extensions get no sidebar section unless they call
+     * {@code getContext().getSettings().registerSection(...)}.
+     *
+     * @param id the extension id, must not be {@code null}
+     * @return the title, or {@link Optional#empty()} for unknown ids or
+     * extensions that never asked for a section
+     */
+    public static Optional<String> getSettingsSection(String id) {
+        ExtensionSettingsManager settings = SETTINGS.get(id);
+        if (settings == null) {
+            return Optional.empty();
+        }
+        return settings.sectionTitle();
+    }
+
+    /**
+     * Enables an extension: transitions {@code DISABLED -> ENABLING}, runs
+     * {@code onEnable()} outside the state lock, then marks
+     * {@code ENABLED}. Calls that lose the transition (already enabled,
+     * enabling, or disabling) return without invoking the callback, so
+     * repeated or concurrent enables can never double-register.
+     *
+     * <p>If {@code onEnable()} throws, the error is logged, the commands
+     * and events registered during that call are rolled back, and the
+     * extension stays disabled so a later enable retries cleanly. Settings
+     * are declarations, not enable-scoped resources, and are left alone.
+     */
     public static void enable(String id) {
         Extension extension = EXTENSIONS.get(id);
 
@@ -177,19 +256,37 @@ public class ExtensionManager {
             return;
         }
 
-        if (Boolean.TRUE.equals(ENABLED.get(id))) {
-            return;
+        synchronized (STATE_LOCK) {
+            if (stateLocked(id) != LifecycleState.DISABLED) {
+                return;
+            }
+            STATES.put(id, LifecycleState.ENABLING);
         }
 
         try {
             extension.onEnable();
-            ENABLED.put(id, true);
         } catch (Exception e) {
             LOGGER.error("Extension {} failed onEnable", id, e);
             clearOwned(id);
+            synchronized (STATE_LOCK) {
+                STATES.put(id, LifecycleState.DISABLED);
+            }
+            return;
+        }
+        synchronized (STATE_LOCK) {
+            STATES.put(id, LifecycleState.ENABLED);
         }
     }
 
+    /**
+     * Disables an enabled extension: transitions
+     * {@code ENABLED -> DISABLING}, runs {@code onDisable()} outside the
+     * state lock, then always removes its commands and events and marks
+     * {@code DISABLED} — even when {@code onDisable()} throws. Calls that
+     * lose the transition return without invoking the callback.
+     *
+     * <p>Settings survive disable by design.
+     */
     public static void disable(String id) {
         Extension extension = EXTENSIONS.get(id);
 
@@ -198,8 +295,11 @@ public class ExtensionManager {
             return;
         }
 
-        if (!Boolean.TRUE.equals(ENABLED.get(id))) {
-            return;
+        synchronized (STATE_LOCK) {
+            if (stateLocked(id) != LifecycleState.ENABLED) {
+                return;
+            }
+            STATES.put(id, LifecycleState.DISABLING);
         }
 
         try {
@@ -208,7 +308,9 @@ public class ExtensionManager {
             LOGGER.error("Extension {} failed onDisable", id, e);
         } finally {
             clearOwned(id);
-            ENABLED.put(id, false);
+            synchronized (STATE_LOCK) {
+                STATES.put(id, LifecycleState.DISABLED);
+            }
         }
     }
 

@@ -41,7 +41,7 @@ public final class SliderSettingComponent implements SettingComponent {
 
     @Override
     public int preferredHeight() {
-        return ROW_HEIGHT;
+        return ROW_HEIGHT + (entry.description() == null ? 0 : 10);
     }
 
     private int clamp(int value) {
@@ -61,6 +61,10 @@ public final class SliderSettingComponent implements SettingComponent {
         graphics.text(font, entry.label(), x + 4, y + 4, SettingsTheme.TEXT_PRIMARY);
         int valueWidth = font.width(valueText);
         graphics.text(font, valueText, x + width - 4 - valueWidth, y + 4, SettingsTheme.VIOLET);
+        if (entry.description() != null) {
+            graphics.text(font, entry.description(), x + 4, y + 4 + font.lineHeight + 1,
+                    SettingsTheme.TEXT_DIM);
+        }
 
         int trackLeft = x + 4;
         int trackRight = x + width - 4;

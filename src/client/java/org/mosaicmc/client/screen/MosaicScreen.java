@@ -11,18 +11,16 @@ import org.jspecify.annotations.NonNull;
 import org.mosaicmc.api.settings.Setting;
 import org.mosaicmc.client.render.RoundedRectRenderState;
 import org.mosaicmc.client.screen.settings.ApiSettingComponents;
-import org.mosaicmc.client.screen.settings.BooleanSettingComponent;
-import org.mosaicmc.client.screen.settings.ButtonSettingComponent;
-import org.mosaicmc.client.screen.settings.EnumSettingComponent;
+import org.mosaicmc.client.screen.settings.ExtensionRowComponent;
 import org.mosaicmc.client.screen.settings.MosaicLayout;
 import org.mosaicmc.client.screen.settings.SettingComponent;
-import org.mosaicmc.client.screen.settings.SettingEntry;
 import org.mosaicmc.client.screen.settings.SettingsCategory;
 import org.mosaicmc.client.screen.settings.SettingsTheme;
 import org.mosaicmc.client.screen.settings.SliderSettingComponent;
 import org.mosaicmc.client.screen.settings.StaticTextComponent;
 import org.mosaicmc.extension.Extension;
 import org.mosaicmc.extension.ExtensionManager;
+import org.mosaicmc.internal.MosaicCoreSettings;
 
 public class MosaicScreen extends Screen {
 
@@ -88,35 +86,29 @@ public class MosaicScreen extends Screen {
     }
 
     // ------------------------------------------------------------------
-    // Categories: built-in demo controls plus one category per discovered
-    // extension, backed live by the public Settings API (no copies, no UI
-    // types leaking into extensions).
+    // Categories: one per discovered extension, backed live by the public
+    // Settings API (no copies, no UI types leaking into extensions).
     // ------------------------------------------------------------------
 
     private static List<SettingsCategory> buildCategories() {
-        List<SettingsCategory> result = new ArrayList<>(buildDemoCategories());
+        List<SettingsCategory> result = new ArrayList<>();
+        result.add(buildGeneralCategory());
+        result.add(buildExtensionsCategory());
 
-        List<Extension> extensions = ExtensionManager.getExtensions();
-        if (extensions.isEmpty()) {
-            result.add(new SettingsCategory("extensions", "Extensions",
-                    List.of(new StaticTextComponent("No extensions registered."))));
-            return result;
-        }
-
-        for (Extension extension : extensions) {
+        for (Extension extension : ExtensionManager.getExtensions()) {
             String extensionId;
-            String title;
             try {
                 extensionId = extension.getMetadata().getId();
-                title = extension.getMetadata().getName();
             } catch (Exception e) {
                 continue;
             }
             if (extensionId == null || extensionId.isBlank()) {
                 continue;
             }
-            if (title == null || title.isBlank()) {
-                title = extensionId;
+            // Opt-in only: no sidebar section unless the extension asked for one.
+            String title = ExtensionManager.getSettingsSection(extensionId).orElse(null);
+            if (title == null) {
+                continue;
             }
             List<Setting<?>> registered = ExtensionManager.getSettings(extensionId);
             List<SettingComponent> rows = new ArrayList<>();
@@ -131,39 +123,62 @@ public class MosaicScreen extends Screen {
         return result;
     }
 
-    private static List<SettingsCategory> buildDemoCategories() {
-        List<SettingsCategory> result = new ArrayList<>();
+    private static SettingsCategory buildGeneralCategory() {
+        List<SettingComponent> rows = new ArrayList<>();
+        int extensionCount = ExtensionManager.getExtensions().size();
+        int settingCount = MosaicCoreSettings.all().size();
+        for (Extension extension : ExtensionManager.getExtensions()) {
+            try {
+                settingCount += ExtensionManager.getSettings(extension.getMetadata().getId()).size();
+            } catch (Exception ignored) {
+                // Broken metadata was already skipped at discovery; never fail the screen.
+            }
+        }
+        rows.add(new StaticTextComponent(
+                "Mosaic — modular, client-first modding.",
+                extensionCount + (extensionCount == 1 ? " extension" : " extensions")
+                        + " · " + settingCount + " settings registered."));
+        for (Setting<?> setting : MosaicCoreSettings.all()) {
+            rows.add(ApiSettingComponents.fromSetting(setting));
+        }
+        return new SettingsCategory("general", "General", rows);
+    }
 
-        SettingEntry<Boolean> notifications = new SettingEntry<>("Enable notifications", true);
-        SettingEntry<Integer> uiScale = new SettingEntry<>("UI scale", 100);
-        SettingEntry<String> theme = new SettingEntry<>("Theme", "Dark");
-        List<SettingComponent> general = new ArrayList<>();
-        general.add(new BooleanSettingComponent(notifications));
-        general.add(new SliderSettingComponent(uiScale, 50, 150));
-        general.add(new EnumSettingComponent(theme, List.of("Dark", "Midnight", "System")));
-        general.add(new ButtonSettingComponent("Send test notification", "Send", () -> {
-        }));
-        result.add(new SettingsCategory("general", "General", general));
-
-        SettingEntry<Boolean> tooltips = new SettingEntry<>("Show tooltips", true);
-        SettingEntry<Integer> animSpeed = new SettingEntry<>("Animation speed", 60);
-        List<SettingComponent> face = new ArrayList<>();
-        face.add(new BooleanSettingComponent(tooltips));
-        face.add(new SliderSettingComponent(animSpeed, 0, 100));
-        face.add(new ButtonSettingComponent("Preview animation", "Preview", () -> {
-        }));
-        result.add(new SettingsCategory("interface", "Interface", face));
-
-        SettingEntry<Boolean> reduceAnim = new SettingEntry<>("Reduce background animations", false);
-        SettingEntry<Integer> fpsLimit = new SettingEntry<>("Frame-rate limit", 120);
-        List<SettingComponent> perf = new ArrayList<>();
-        perf.add(new BooleanSettingComponent(reduceAnim));
-        perf.add(new SliderSettingComponent(fpsLimit, 30, 240));
-        perf.add(new ButtonSettingComponent("Clear demo caches", "Clear", () -> {
-        }));
-        result.add(new SettingsCategory("performance", "Performance", perf));
-
-        return result;
+    private static SettingsCategory buildExtensionsCategory() {
+        List<Extension> extensions = ExtensionManager.getExtensions();
+        if (extensions.isEmpty()) {
+            return new SettingsCategory("extensions", "Extensions",
+                    List.of(new StaticTextComponent("No extensions registered.")));
+        }
+        List<SettingComponent> rows = new ArrayList<>();
+        for (Extension extension : extensions) {
+            String extensionId;
+            String name;
+            String version;
+            String description;
+            try {
+                extensionId = extension.getMetadata().getId();
+                name = extension.getMetadata().getName();
+                version = extension.getMetadata().getVersion();
+                description = extension.getMetadata().getDescription();
+            } catch (Exception e) {
+                continue;
+            }
+            if (extensionId == null || extensionId.isBlank()) {
+                continue;
+            }
+            if (name == null || name.isBlank()) {
+                name = extensionId;
+            }
+            if (version == null) {
+                version = "";
+            }
+            rows.add(new ExtensionRowComponent(extensionId, name, version, description));
+        }
+        if (rows.isEmpty()) {
+            rows.add(new StaticTextComponent("No extensions registered."));
+        }
+        return new SettingsCategory("extensions", "Extensions", rows);
     }
 
     // ------------------------------------------------------------------

@@ -21,6 +21,7 @@ import org.mosaicmc.api.settings.Settings;
 public final class ExtensionSettingsManager implements Settings {
     private final Map<String, Setting<?>> settings = new LinkedHashMap<>();
     private volatile String owner = "unknown";
+    private String sectionTitle;
 
     public ExtensionSettingsManager() {
     }
@@ -41,6 +42,29 @@ public final class ExtensionSettingsManager implements Settings {
             throw new IllegalArgumentException("owner must not be blank");
         }
         this.owner = owner;
+    }
+
+    @Override
+    public synchronized void registerSection(String title) {
+        Objects.requireNonNull(title, "title");
+        if (title.isBlank()) {
+            throw new IllegalArgumentException("section title must not be blank");
+        }
+        if (sectionTitle != null) {
+            throw new IllegalArgumentException(
+                    "Extension '" + owner + "' already registered a section");
+        }
+        sectionTitle = title;
+    }
+
+    /**
+     * The requested settings-section title, if the extension asked for one.
+     *
+     * @return the title, or {@link Optional#empty()} when the extension
+     * wants no sidebar section
+     */
+    public synchronized Optional<String> sectionTitle() {
+        return Optional.ofNullable(sectionTitle);
     }
 
     @Override

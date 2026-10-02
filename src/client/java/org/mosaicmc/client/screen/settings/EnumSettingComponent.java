@@ -40,7 +40,7 @@ public final class EnumSettingComponent implements SettingComponent {
 
     @Override
     public int preferredHeight() {
-        return ROW_HEIGHT;
+        return ROW_HEIGHT + (entry.description() == null ? 0 : 10);
     }
 
     private void cycle(int direction) {
@@ -70,7 +70,15 @@ public final class EnumSettingComponent implements SettingComponent {
         if (labelMax > 10 && font.width(label) > labelMax) {
             label = font.plainSubstrByWidth(label, labelMax - 3) + "...";
         }
-        graphics.text(font, label, x + 4, y + (height - font.lineHeight) / 2, SettingsTheme.TEXT_PRIMARY);
+        int labelY = y + (height - font.lineHeight) / 2;
+        if (entry.description() != null) {
+            labelY = y + 3;
+        }
+        graphics.text(font, label, x + 4, labelY, SettingsTheme.TEXT_PRIMARY);
+        if (entry.description() != null) {
+            graphics.text(font, entry.description(), x + 4, y + 3 + font.lineHeight + 1,
+                    SettingsTheme.TEXT_DIM);
+        }
 
         boolean buttonHovered = SettingComponent.contains(mouseX, mouseY, buttonX, buttonY, buttonW, BUTTON_H) || hovered;
         int bg = buttonHovered ? SettingsTheme.CONTROL_BG_HOVER : SettingsTheme.CONTROL_BG;

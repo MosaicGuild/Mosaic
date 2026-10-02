@@ -10,6 +10,7 @@ import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
@@ -22,6 +23,7 @@ import org.mosaicmc.api.settings.BooleanSetting;
 import org.mosaicmc.api.settings.EnumSetting;
 import org.mosaicmc.api.settings.IntSetting;
 import org.mosaicmc.api.settings.Settings;
+import org.mosaicmc.internal.MosaicCoreSettings;
 
 /**
  * Unit tests for the public Settings API: defaults, reads/writes, bounds,
@@ -227,6 +229,67 @@ class SettingsApiTest {
         assertEquals(false, enabled.get(), "disable must not reset values");
         assertEquals(1, ExtensionManager.getSettings("waypoints").size(),
                 "disable must not delete settings");
+    }
+
+    @Test
+    void coreSettingsHaveDefaultsAndStableIdentity() {
+        assertEquals(true, MosaicCoreSettings.notifications().get());
+        assertEquals(100, MosaicCoreSettings.uiScale().get());
+        assertEquals(MosaicCoreSettings.Theme.DARK, MosaicCoreSettings.theme().get());
+        assertEquals(List.of("notifications", "ui_scale", "theme"),
+                MosaicCoreSettings.all().stream().map(s -> s.id()).toList());
+        assertSame(MosaicCoreSettings.notifications(),
+                MosaicCoreSettings.all().stream()
+                        .filter(s -> s.id().equals("notifications")).findFirst().orElseThrow());
+    }
+
+    @Test
+    void noSectionByDefault() {
+        settingsOf("waypoints");
+
+        assertTrue(ExtensionManager.getSettingsSection("waypoints").isEmpty());
+        assertTrue(ExtensionManager.getSettingsSection("unknown-id").isEmpty());
+    }
+
+    @Test
+    void sectionRegistrationAndRetrieval() {
+        Settings settings = settingsOf("waypoints");
+        settings.registerSection("Waypoints");
+
+        assertEquals(Optional.of("Waypoints"),
+                ExtensionManager.getSettingsSection("waypoints"));
+    }
+
+    @Test
+    void duplicateSectionRejected() {
+        Settings settings = settingsOf("waypoints");
+        settings.registerSection("Waypoints");
+
+        assertThrows(IllegalArgumentException.class, () -> settings.registerSection("Again"));
+        assertEquals(Optional.of("Waypoints"),
+                ExtensionManager.getSettingsSection("waypoints"),
+                "failed re-registration must keep the original title");
+    }
+
+    @Test
+    void invalidSectionRejected() {
+        Settings settings = settingsOf("waypoints");
+
+        assertThrows(NullPointerException.class, () -> settings.registerSection(null));
+        assertThrows(IllegalArgumentException.class, () -> settings.registerSection("  "));
+        assertTrue(ExtensionManager.getSettingsSection("waypoints").isEmpty());
+    }
+
+    @Test
+    void sectionsAreIsolatedPerExtension() {
+        DummyExtension alpha = new DummyExtension("alpha");
+        DummyExtension beta = new DummyExtension("beta");
+        ExtensionManager.init(fakeLoader(List.of(
+                entrypoint("mod-a", alpha), entrypoint("mod-b", beta))));
+        alpha.getContext().getSettings().registerSection("Alpha");
+
+        assertEquals(Optional.of("Alpha"), ExtensionManager.getSettingsSection("alpha"));
+        assertTrue(ExtensionManager.getSettingsSection("beta").isEmpty());
     }
 
     // Helpers: one shared discovery per test class usage; each test resets first.
