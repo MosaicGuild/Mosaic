@@ -195,7 +195,7 @@ public final class ExtensionSettingsManager implements Settings {
 
     static final class BooleanSettingImpl extends BaseSetting<Boolean> implements BooleanSetting {
         private volatile boolean value;
-        private long touchedEpoch; // guarded by synchronizing on this
+        private long touchedEpoch;
 
         BooleanSettingImpl(String id, String displayName, String description, boolean defaultValue) {
             super(id, displayName, description, defaultValue);
@@ -240,7 +240,7 @@ public final class ExtensionSettingsManager implements Settings {
         private final int min;
         private final int max;
         private volatile int value;
-        private long touchedEpoch; // guarded by synchronizing on this
+        private long touchedEpoch;
 
         IntSettingImpl(String id, String displayName, String description,
                 int defaultValue, int min, int max) {

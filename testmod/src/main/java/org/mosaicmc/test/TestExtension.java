@@ -17,17 +17,6 @@ import java.util.List;
 public class TestExtension extends Extension {
 	public static final Logger LOGGER = LoggerFactory.getLogger("mosaic-testmod");
 
-	/** Example enum setting choices. Declared with public API types only. */
-	public enum RadarMode {
-		COMPACT,
-		DETAILED,
-		SILENT
-	}
-
-	private BooleanSetting announcements;
-	private IntSetting radarRadius;
-	private EnumSetting<RadarMode> radarMode;
-
 	private static final ExtensionMetadata METADATA = new ExtensionMetadata() {
 		@Override
 		public String getId() {
@@ -122,10 +111,6 @@ public class TestExtension extends Extension {
 			getContext().getScheduler().execute(() -> LOGGER.info(
 					"[Mosaic Test] onEnable scheduled task running on thread {}",
 					Thread.currentThread().getName()));
-			if (announcements != null && announcements.get()) {
-				LOGGER.info("[Mosaic Test] radar settings: radius={} mode={}",
-						radarRadius.get(), radarMode.get());
-			}
 			getContext().getCommands().unregister(testmodRoot());
 			getContext().getCommands().register(testmodRoot());
 			LOGGER.info("[Mosaic Test] commands registered: /mosaic testmod <ping|once>");
@@ -153,21 +138,6 @@ public class TestExtension extends Extension {
 		LOGGER.info("[Mosaic Test] loaded: {} on thread {}",
 				getMetadata().getId(), Thread.currentThread().getName());
 		try {
-			// Example settings declared with Mosaic's public API only: no
-			// Fabric internals, no UI classes. The section call opts this
-			// extension into a sidebar entry; without it the settings stay
-			// programmatic-only. Values edited in the settings screen are
-			// read back in onEnable above.
-			var settings = getContext().getSettings();
-			settings.registerSection("Test Extension");
-			announcements = settings.registerBoolean(
-					"announcements", "Enable announcements",
-					"Sends a chat message when a waypoint is reached.", true);
-			radarRadius = settings.registerInt(
-					"radar_radius", "Radar radius",
-					"How far (in blocks) the radar scans.", 100, 10, 500);
-			radarMode = settings.registerEnum(
-					"radar_mode", "Radar mode", null, RadarMode.DETAILED);
 			var scheduler = getContext().getScheduler();
 			LOGGER.info("[Mosaic Test] context OK, scheduler={}",
 					scheduler.getClass().getSimpleName());

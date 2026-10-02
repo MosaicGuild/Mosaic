@@ -77,7 +77,7 @@ public final class SliderSettingComponent implements SettingComponent {
         RoundedRectRenderState.fill(graphics, trackLeft, trackY, trackRight, trackY + trackH, 2, SettingsTheme.TRACK_OFF);
 
         double fraction = max == min ? 0.0 : (double) (entry.get() - min) / (double) (max - min);
-        fraction = Math.max(0.0, Math.min(1.0, fraction));
+        fraction = Math.clamp(fraction, 0.0, 1.0);
         int filled = (int) Math.round(trackWidth * fraction);
         if (filled > 0) {
             int fillColor = hovered ? SettingsTheme.VIOLET_HOVER : SettingsTheme.VIOLET;
@@ -96,7 +96,6 @@ public final class SliderSettingComponent implements SettingComponent {
         int trackLeft = x + 4;
         int trackRight = x + width - 4;
         int trackY = y + height - 14;
-        // Generous vertical hitbox so the thin track is easy to grab.
         return mouseX >= trackLeft - 2 && mouseX < trackRight + 2
                 && mouseY >= trackY - 8 && mouseY < trackY + 12;
     }
@@ -109,7 +108,7 @@ public final class SliderSettingComponent implements SettingComponent {
             return;
         }
         double fraction = (mouseX - trackLeft) / (double) trackWidth;
-        fraction = Math.max(0.0, Math.min(1.0, fraction));
+        fraction = Math.clamp(fraction, 0.0, 1.0);
         int value = (int) Math.round(min + fraction * (max - min));
         entry.set(clamp(value));
     }

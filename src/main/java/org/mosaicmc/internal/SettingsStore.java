@@ -157,8 +157,6 @@ public final class SettingsStore {
         try {
             parsed = JsonParser.parseString(content);
         } catch (JsonSyntaxException e) {
-            // Malformed: keep defaults. The original is backed up first so
-            // no later save can silently replace it with defaults.
             Mosaic.LOGGER.error("[Mosaic] malformed settings file {}, keeping defaults", file, e);
             backupCorruptFile();
             return;
@@ -182,8 +180,6 @@ public final class SettingsStore {
             version = parsedVersion;
         }
         if (version != CURRENT_VERSION) {
-            // Unknown schema: keep values working in memory but refuse to
-            // write, so a newer file can never be clobbered by older code.
             Mosaic.LOGGER.warn(
                     "[Mosaic] settings file {} uses unsupported schema version {}, keeping defaults and disabling saves",
                     file, version);
@@ -269,8 +265,6 @@ public final class SettingsStore {
         }
         Set<String> enabled = new LinkedHashSet<>(ExtensionManager.enabledExtensionIds());
         for (String id : rawEnabledIds) {
-            // Temporarily unavailable extensions keep their lifecycle state;
-            // known extensions report through enabledExtensionIds instead.
             if (ExtensionManager.get(id).isEmpty()) {
                 enabled.add(id);
             }
@@ -352,10 +346,7 @@ public final class SettingsStore {
                         owner, setting.id(), file);
                 return;
             }
-            int clamped = value > Integer.MAX_VALUE ? Integer.MAX_VALUE
-                    : value < Integer.MIN_VALUE ? Integer.MIN_VALUE : value;
-            // assignLoadedUnlessTouched clamps to [min, max] itself
-            intSetting.assignLoadedUnlessTouched(clamped, epoch);
+            intSetting.assignLoadedUnlessTouched(value, epoch);
         } else if (setting instanceof ExtensionSettingsManager.EnumSettingImpl<?> enumSetting) {
             applyEnumValue(owner, enumSetting, raw, epoch);
         } else {
@@ -474,7 +465,6 @@ public final class SettingsStore {
             try {
                 Files.deleteIfExists(tmp);
             } catch (IOException | RuntimeException ignored) {
-                // Best effort: the temp file may linger, but the target is untouched.
             }
             throw e;
         }

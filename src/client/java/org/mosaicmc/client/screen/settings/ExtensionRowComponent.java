@@ -55,7 +55,6 @@ public final class ExtensionRowComponent implements SettingComponent {
         int trackX = x + width - TRACK_W - 4;
         int trackY = y + (height - TRACK_H) / 2;
 
-        // State label sits left of the toggle, vertically centered with it.
         String state = enabled ? "Enabled" : "Disabled";
         int stateColor = enabled ? SettingsTheme.VIOLET : SettingsTheme.TEXT_DIM;
         int stateW = font.width(state);

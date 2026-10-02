@@ -85,11 +85,6 @@ public class MosaicScreen extends Screen {
         return categories.get(clampedSelectedIndex());
     }
 
-    // ------------------------------------------------------------------
-    // Categories: one per discovered extension, backed live by the public
-    // Settings API (no copies, no UI types leaking into extensions).
-    // ------------------------------------------------------------------
-
     private static List<SettingsCategory> buildCategories() {
         List<SettingsCategory> result = new ArrayList<>();
         result.add(buildGeneralCategory());
@@ -131,7 +126,6 @@ public class MosaicScreen extends Screen {
             try {
                 settingCount += ExtensionManager.getSettings(extension.getMetadata().getId()).size();
             } catch (Exception ignored) {
-                // Broken metadata was already skipped at discovery; never fail the screen.
             }
         }
         rows.add(new StaticTextComponent(
@@ -180,10 +174,6 @@ public class MosaicScreen extends Screen {
         }
         return new SettingsCategory("extensions", "Extensions", rows);
     }
-
-    // ------------------------------------------------------------------
-    // Layout: single source of truth for rendering and input.
-    // ------------------------------------------------------------------
 
     private record ContentRow(SettingComponent component, int x, int y, int width, int height) {
     }
@@ -260,10 +250,6 @@ public class MosaicScreen extends Screen {
     private static boolean visibleInSidebar(SidebarRow row, MosaicLayout layout) {
         return row.y() + row.height() > layout.sideTop() && row.y() < layout.sideBottom();
     }
-
-    // ------------------------------------------------------------------
-    // Rendering (preserves the original approach and visual structure).
-    // ------------------------------------------------------------------
 
     @Override
     public void extractRenderState(@NonNull GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
@@ -440,8 +426,6 @@ public class MosaicScreen extends Screen {
                     return true;
                 }
             }
-            // Slider scrolled out of view mid-drag: keep consuming so the drag
-            // does not leak to other behavior, but there is nothing to update.
             return true;
         }
         return super.mouseDragged(event, dragX, dragY);

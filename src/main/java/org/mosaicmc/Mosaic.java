@@ -19,19 +19,12 @@ public class Mosaic implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		// Startup sequence for settings: discovery runs onLoad() so all
-		// setting declarations exist, then persisted values are applied
-		// before any extension can be enabled or the settings UI can read
-		// them. Enabling is user-driven and only possible afterwards.
 		ExtensionManager.init();
 		MosaicCommands.registerDefaults();
 		Path settingsFile = FabricLoader.getInstance().getConfigDir().resolve("mosaic/settings.json");
 		SettingsStore store = new SettingsStore(settingsFile);
 		ExtensionManager.setSettingsStore(store);
 		store.load();
-		// Restore lifecycle state last: values are in place, so enabling
-		// behavior now observes restored settings. Failed extensions stay
-		// disabled per the usual enable semantics.
 		ExtensionManager.restoreEnabledState(store.loadedEnabledIds());
 	}
 

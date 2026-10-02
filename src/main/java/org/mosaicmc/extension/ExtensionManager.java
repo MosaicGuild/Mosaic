@@ -55,7 +55,6 @@ public class ExtensionManager {
         return state == null ? LifecycleState.DISABLED : state;
     }
 
-    // For the future me; This thing called init is for extension discovery
     public static void init() {
         init(FabricLoader.getInstance());
     }
@@ -119,10 +118,6 @@ public class ExtensionManager {
             try {
                 extension.onLoad();
             } catch (Exception e) {
-                // A failed load must not leave a half-initialized extension
-                // behind: drop its bridges (clearing anything it managed to
-                // register first) and skip it like any other discovery
-                // failure, so it can never be enabled.
                 LOGGER.error("Extension {} failed onLoad, unregistering", id, e);
                 events.clear();
                 commands.clear();
