@@ -5,12 +5,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.mosaicmc.api.settings.BooleanSetting;
 import org.mosaicmc.api.settings.EnumSetting;
 import org.mosaicmc.api.settings.IntSetting;
 import org.mosaicmc.api.settings.Setting;
 import org.mosaicmc.api.settings.Settings;
+import org.mosaicmc.extension.ExtensionManager;
 
 /**
  * One extension's settings facade. Settings are keyed by extension-scoped
@@ -22,6 +24,25 @@ public final class ExtensionSettingsManager implements Settings {
     private final Map<String, Setting<?>> settings = new LinkedHashMap<>();
     private volatile String owner = "unknown";
     private String sectionTitle;
+
+    /**
+     * Load epochs. Every load opens a new one; every change stamps the
+     * current one on its setting. A load then applies a file value only to
+     * settings untouched during its own epoch, so a change racing the load
+     * keeps both its value and its dirty mark. Epoch 0 predates all loads
+     * and can never collide with a real load window.
+     */
+    private static final AtomicLong LOAD_EPOCH = new AtomicLong();
+
+    /** Current load epoch. Mosaic-internal; sampled by setting implementations on every change. */
+    static long currentLoadEpoch() {
+        return LOAD_EPOCH.get();
+    }
+
+    /** Starts a new load window. Mosaic-internal; called by the settings store before applying values. */
+    static long nextLoadEpoch() {
+        return LOAD_EPOCH.incrementAndGet();
+    }
 
     public ExtensionSettingsManager() {
     }
@@ -172,8 +193,9 @@ public final class ExtensionSettingsManager implements Settings {
         }
     }
 
-    private static final class BooleanSettingImpl extends BaseSetting<Boolean> implements BooleanSetting {
+    static final class BooleanSettingImpl extends BaseSetting<Boolean> implements BooleanSetting {
         private volatile boolean value;
+        private long touchedEpoch; // guarded by synchronizing on this
 
         BooleanSettingImpl(String id, String displayName, String description, boolean defaultValue) {
             super(id, displayName, description, defaultValue);
@@ -187,14 +209,38 @@ public final class ExtensionSettingsManager implements Settings {
 
         @Override
         public void set(Boolean value) {
-            this.value = Objects.requireNonNull(value, "value");
+            Objects.requireNonNull(value, "value");
+            synchronized (this) {
+                this.value = value;
+                this.touchedEpoch = currentLoadEpoch();
+            }
+            ExtensionManager.markSettingsDirty();
+        }
+
+        /**
+         * Assigns a loaded value unless the setting changed during the
+         * given load epoch. The check and the assignment are atomic, so a
+         * concurrent change can neither be overwritten nor lose its dirty
+         * mark.
+         *
+         * @return false when skipped because of a concurrent change
+         */
+        boolean assignLoadedUnlessTouched(boolean value, long epoch) {
+            synchronized (this) {
+                if (touchedEpoch == epoch) {
+                    return false;
+                }
+                this.value = value;
+                return true;
+            }
         }
     }
 
-    private static final class IntSettingImpl extends BaseSetting<Integer> implements IntSetting {
+    static final class IntSettingImpl extends BaseSetting<Integer> implements IntSetting {
         private final int min;
         private final int max;
         private volatile int value;
+        private long touchedEpoch; // guarded by synchronizing on this
 
         IntSettingImpl(String id, String displayName, String description,
                 int defaultValue, int min, int max) {
@@ -222,14 +268,37 @@ public final class ExtensionSettingsManager implements Settings {
         @Override
         public void set(Integer value) {
             Objects.requireNonNull(value, "value");
-            this.value = Math.max(min, Math.min(max, value));
+            synchronized (this) {
+                this.value = Math.max(min, Math.min(max, value));
+                this.touchedEpoch = currentLoadEpoch();
+            }
+            ExtensionManager.markSettingsDirty();
+        }
+
+        /**
+         * Assigns a loaded value unless the setting changed during the
+         * given load epoch. The check and the assignment are atomic, so a
+         * concurrent change can neither be overwritten nor lose its dirty
+         * mark.
+         *
+         * @return false when skipped because of a concurrent change
+         */
+        boolean assignLoadedUnlessTouched(int value, long epoch) {
+            synchronized (this) {
+                if (touchedEpoch == epoch) {
+                    return false;
+                }
+                this.value = Math.max(min, Math.min(max, value));
+                return true;
+            }
         }
     }
 
-    private static final class EnumSettingImpl<E extends Enum<E>> extends BaseSetting<E> implements EnumSetting<E> {
+    static final class EnumSettingImpl<E extends Enum<E>> extends BaseSetting<E> implements EnumSetting<E> {
         private final Class<E> type;
         private final List<E> options;
         private volatile E value;
+        private long touchedEpoch; // guarded by synchronizing on this
 
         EnumSettingImpl(String id, String displayName, String description, E defaultValue) {
             super(id, displayName, description, defaultValue);
@@ -255,7 +324,31 @@ public final class ExtensionSettingsManager implements Settings {
 
         @Override
         public void set(E value) {
-            this.value = Objects.requireNonNull(value, "value");
+            Objects.requireNonNull(value, "value");
+            synchronized (this) {
+                this.value = value;
+                this.touchedEpoch = currentLoadEpoch();
+            }
+            ExtensionManager.markSettingsDirty();
+        }
+
+        /**
+         * Assigns a loaded value unless the setting changed during the
+         * given load epoch. The check and the assignment are atomic, so a
+         * concurrent change can neither be overwritten nor lose its dirty
+         * mark.
+         *
+         * @return false when skipped because of a concurrent change
+         */
+        boolean assignLoadedUnlessTouched(E value, long epoch) {
+            Objects.requireNonNull(value, "value");
+            synchronized (this) {
+                if (touchedEpoch == epoch) {
+                    return false;
+                }
+                this.value = value;
+                return true;
+            }
         }
     }
 }

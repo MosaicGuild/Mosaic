@@ -12,7 +12,8 @@
 		"sources": "https://github.com/FabricMC/fabric-example-mod"
 	},
 	"license": "CC0-1.0",
-	"icon": "assets/mosaic/icon.png",
+	"icon": "assets/mosaic/mosaic.png",
+
 	"environment": "*",
 	"mixins": [
 		"mosaic.client.mixins.json"

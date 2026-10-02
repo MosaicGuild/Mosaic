@@ -1,8 +1,10 @@
 package org.mosaicmc.extension;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import net.fabricmc.loader.api.FabricLoader;
@@ -16,6 +18,7 @@ import org.mosaicmc.internal.ExtensionCommandManager;
 import org.mosaicmc.internal.ExtensionContextImpl;
 import org.mosaicmc.internal.ExtensionEventsImpl;
 import org.mosaicmc.internal.ExtensionSettingsManager;
+import org.mosaicmc.internal.SettingsStore;
 import org.slf4j.Logger;
 
 public class ExtensionManager {
@@ -32,6 +35,7 @@ public class ExtensionManager {
     private static final Map<String, LifecycleState> STATES = new LinkedHashMap<>();
     private static final Object STATE_LOCK = new Object();
     private static volatile ExtensionScheduler scheduler = Runnable::run;
+    private static volatile SettingsStore settingsStore;
 
     /**
      * Minimal per-extension lifecycle. Transient states exist so concurrent
@@ -139,6 +143,7 @@ public class ExtensionManager {
         EVENT_BRIDGES.clear();
         COMMAND_FACADES.clear();
         SETTINGS.clear();
+        settingsStore = null;
         synchronized (STATE_LOCK) {
             STATES.clear();
         }
@@ -220,6 +225,94 @@ public class ExtensionManager {
     }
 
     /**
+     * Owner ids with attached settings managers, in discovery order.
+     * Mosaic-internal: used by the settings store to enumerate persistence.
+     *
+     * @return an unmodifiable snapshot, never {@code null}
+     */
+    public static List<String> settingOwnerIds() {
+        return List.copyOf(SETTINGS.keySet());
+    }
+
+    /**
+     * Attaches the settings store that setting changes are reported to.
+     * Mosaic-internal: wired once during startup, cleared by test resets.
+     *
+     * @param store the store, or {@code null} to detach
+     */
+    public static void setSettingsStore(SettingsStore store) {
+        settingsStore = store;
+    }
+
+    /**
+     * Records a setting change for later persistence. Mosaic-internal:
+     * called by setting implementations on every {@code set()}, covering
+     * GUI and programmatic writes alike. Never throws.
+     */
+    public static void markSettingsDirty() {
+        SettingsStore store = settingsStore;
+        if (store != null) {
+            store.markDirty();
+        }
+    }
+
+    /**
+     * Writes pending setting changes, honoring the store's save interval.
+     * Safe to call every tick: returns immediately when nothing is dirty.
+     *
+     * @return true when the file was replaced
+     */
+    public static boolean saveSettingsIfDirty() {
+        SettingsStore store = settingsStore;
+        return store != null && store.saveIfDirty();
+    }
+
+    /**
+     * Writes all settings immediately, for shutdown flushes.
+     *
+     * @return true when the file was replaced
+     */
+    public static boolean saveSettings() {
+        SettingsStore store = settingsStore;
+        return store != null && store.save();
+    }
+
+    /**
+     * Ids of currently enabled extensions, in discovery order.
+     * Mosaic-internal: used by the settings store to persist lifecycle state.
+     *
+     * @return an unmodifiable snapshot, never {@code null}
+     */
+    public static List<String> enabledExtensionIds() {
+        List<String> enabled = new ArrayList<>();
+        synchronized (STATE_LOCK) {
+            for (String id : EXTENSIONS.keySet()) {
+                if (stateLocked(id) == LifecycleState.ENABLED) {
+                    enabled.add(id);
+                }
+            }
+        }
+        return enabled;
+    }
+
+    /**
+     * Enables every listed extension that is currently registered.
+     * Mosaic-internal: called once at startup after persisted settings are
+     * restored. Unknown ids are skipped; a failing extension stays disabled
+     * per the usual enable semantics.
+     *
+     * @param ids extension ids to enable, must not be {@code null}
+     */
+    public static void restoreEnabledState(List<String> ids) {
+        Objects.requireNonNull(ids, "ids");
+        for (String id : ids) {
+            if (id != null && get(id).isPresent()) {
+                enable(id);
+            }
+        }
+    }
+
+    /**
      * The settings-section title the given extension asked for, if any.
      * Extensions get no sidebar section unless they call
      * {@code getContext().getSettings().registerSection(...)}.
@@ -276,6 +369,7 @@ public class ExtensionManager {
         synchronized (STATE_LOCK) {
             STATES.put(id, LifecycleState.ENABLED);
         }
+        markSettingsDirty();
     }
 
     /**
@@ -311,6 +405,7 @@ public class ExtensionManager {
             synchronized (STATE_LOCK) {
                 STATES.put(id, LifecycleState.DISABLED);
             }
+            markSettingsDirty();
         }
     }
 
