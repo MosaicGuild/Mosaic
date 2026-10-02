@@ -1,6 +1,7 @@
 package org.mosaicmc.extension;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -210,6 +211,21 @@ class ExtensionManagerTest {
         ExtensionManager.init(fakeLoader(List.of()));
 
         assertEquals(Optional.empty(), ExtensionManager.get("nope"));
+    }
+
+    @Test
+    void isEnabledTracksEnableDisable() {
+        DummyExtension extension = new DummyExtension("waypoints");
+        ExtensionManager.init(fakeLoader(List.of(entrypoint("some-mod", extension))));
+
+        assertFalse(ExtensionManager.isEnabled("waypoints"), "freshly loaded is not enabled");
+        assertFalse(ExtensionManager.isEnabled("nope"), "unknown ids report false");
+
+        ExtensionManager.enable("waypoints");
+        assertTrue(ExtensionManager.isEnabled("waypoints"));
+
+        ExtensionManager.disable("waypoints");
+        assertFalse(ExtensionManager.isEnabled("waypoints"));
     }
 
     // Fakes below. Loader API interfaces are implemented with dynamic proxies;

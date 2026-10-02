@@ -6,6 +6,9 @@ import org.mosaicmc.api.command.Command;
 import org.mosaicmc.api.command.CommandArgument;
 import org.mosaicmc.api.command.CommandArguments;
 import org.mosaicmc.api.command.CommandContext;
+import org.mosaicmc.api.settings.BooleanSetting;
+import org.mosaicmc.api.settings.EnumSetting;
+import org.mosaicmc.api.settings.IntSetting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -81,7 +84,7 @@ public class TestExtension extends Extension {
 
 			@Override
 			public void execute(CommandContext context) {
-				context.sendMessage("§apong " + context.<String>arg(MESSAGE));
+				context.sendMessage("§apong " + context.arg(MESSAGE));
 			}
 		};
 	}
@@ -95,8 +98,6 @@ public class TestExtension extends Extension {
 
 			@Override
 			public void execute(CommandContext context) {
-				// Unregisters the whole testmod root: removal is root-scoped,
-				// so a child removes itself by taking its tree with it.
 				context.sendMessage("§aone-shot command, unregistering /mosaic testmod");
 				TestExtension.this.getContext().getCommands().unregister(testmodRoot());
 			}
@@ -110,7 +111,6 @@ public class TestExtension extends Extension {
 			getContext().getScheduler().execute(() -> LOGGER.info(
 					"[Mosaic Test] onEnable scheduled task running on thread {}",
 					Thread.currentThread().getName()));
-			// Idempotent: a disable clears these, so re-enabling re-registers.
 			getContext().getCommands().unregister(testmodRoot());
 			getContext().getCommands().register(testmodRoot());
 			LOGGER.info("[Mosaic Test] commands registered: /mosaic testmod <ping|once>");
@@ -142,12 +142,6 @@ public class TestExtension extends Extension {
 			LOGGER.info("[Mosaic Test] context OK, scheduler={}",
 					scheduler.getClass().getSimpleName());
 
-			// Server-safe self-check: hop from a background thread through the
-			// ExtensionScheduler. At onLoad time the client initializer has not
-			// run yet, so the scheduler is still the inline default and the
-			// runner is expected to be the bg thread itself. After
-			// MosaicClient installs the real client scheduler,
-			// TestExtensionClient repeats the check with visible chat output.
 			String callerThread = Thread.currentThread().getName();
 			Thread bg = new Thread(() -> {
 				String bgThread = Thread.currentThread().getName();

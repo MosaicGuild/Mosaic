@@ -1,19 +1,24 @@
 package org.mosaicmc.extension;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.entrypoint.EntrypointContainer;
 import org.mosaicmc.Mosaic;
 import org.mosaicmc.api.ExtensionScheduler;
+import org.mosaicmc.api.settings.Setting;
 import org.mosaicmc.internal.ClientTickRegistry;
 import org.mosaicmc.internal.CommandTree;
 import org.mosaicmc.internal.ExtensionCommandManager;
 import org.mosaicmc.internal.ExtensionContextImpl;
 import org.mosaicmc.internal.ExtensionEventsImpl;
+import org.mosaicmc.internal.ExtensionSettingsManager;
+import org.mosaicmc.internal.SettingsStore;
 import org.slf4j.Logger;
 
 public class ExtensionManager {
@@ -21,10 +26,35 @@ public class ExtensionManager {
     private static final Map<String, Extension> EXTENSIONS = new LinkedHashMap<>();
     private static final Map<String, ExtensionEventsImpl> EVENT_BRIDGES = new LinkedHashMap<>();
     private static final Map<String, ExtensionCommandManager> COMMAND_FACADES = new LinkedHashMap<>();
-    private static final Map<String, Boolean> ENABLED = new LinkedHashMap<>();
+    private static final Map<String, ExtensionSettingsManager> SETTINGS = new LinkedHashMap<>();
+    /**
+     * Lifecycle states. Guarded by {@link #STATE_LOCK}, which is held only
+     * for state reads and transitions — never while running extension
+     * callbacks, so a misbehaving extension cannot deadlock the manager.
+     */
+    private static final Map<String, LifecycleState> STATES = new LinkedHashMap<>();
+    private static final Object STATE_LOCK = new Object();
     private static volatile ExtensionScheduler scheduler = Runnable::run;
+    private static volatile SettingsStore settingsStore;
 
-    // For the future me; This thing called init is for extension discovery
+    /**
+     * Minimal per-extension lifecycle. Transient states exist so concurrent
+     * enable/disable calls resolve atomically: exactly one caller wins the
+     * transition and runs the callback, the losers return without effect.
+     */
+    private enum LifecycleState {
+        DISABLED,
+        ENABLING,
+        ENABLED,
+        DISABLING
+    }
+
+    /** Must only be called while holding {@link #STATE_LOCK}. */
+    private static LifecycleState stateLocked(String id) {
+        LifecycleState state = STATES.get(id);
+        return state == null ? LifecycleState.DISABLED : state;
+    }
+
     public static void init() {
         init(FabricLoader.getInstance());
     }
@@ -51,9 +81,10 @@ public class ExtensionManager {
 
             ExtensionEventsImpl events = new ExtensionEventsImpl();
             ExtensionCommandManager commands = new ExtensionCommandManager();
+            ExtensionSettingsManager settings = new ExtensionSettingsManager();
 
             try {
-                extension.setContext(new ExtensionContextImpl(scheduler, events, commands));
+                extension.setContext(new ExtensionContextImpl(scheduler, events, commands, settings));
             } catch (Exception e) {
                 LOGGER.error("Failed to inject context into extension from {}", modId, e);
                 continue;
@@ -81,11 +112,19 @@ public class ExtensionManager {
             EXTENSIONS.put(id, extension);
             EVENT_BRIDGES.put(id, events);
             COMMAND_FACADES.put(id, commands);
+            settings.setOwner(id);
+            SETTINGS.put(id, settings);
 
             try {
                 extension.onLoad();
             } catch (Exception e) {
-                LOGGER.error("Extension {} failed onLoad", id, e);
+                LOGGER.error("Extension {} failed onLoad, unregistering", id, e);
+                events.clear();
+                commands.clear();
+                EXTENSIONS.remove(id);
+                EVENT_BRIDGES.remove(id);
+                COMMAND_FACADES.remove(id);
+                SETTINGS.remove(id);
             }
         }
     }
@@ -98,7 +137,11 @@ public class ExtensionManager {
         EXTENSIONS.clear();
         EVENT_BRIDGES.clear();
         COMMAND_FACADES.clear();
-        ENABLED.clear();
+        SETTINGS.clear();
+        settingsStore = null;
+        synchronized (STATE_LOCK) {
+            STATES.clear();
+        }
         ClientTickRegistry.clearAll();
         CommandTree.clearAll();
         scheduler = Runnable::run;
@@ -109,8 +152,8 @@ public class ExtensionManager {
      * refreshes the context of already registered extensions.
      * The client initializer installs the real client-thread scheduler here;
      * the default simply runs tasks inline(safe for unit tests / servers).
-     * Each extension keeps its events bridge and command facade, so
-     * registrations survive the swap.
+     * Each extension keeps its events bridge, command facade, and settings
+     * manager, so registrations and values survive the swap.
      */
     public static void setScheduler(ExtensionScheduler scheduler) {
         if (scheduler == null) {
@@ -124,7 +167,9 @@ public class ExtensionManager {
                         entry.getKey(), key -> new ExtensionEventsImpl());
                 ExtensionCommandManager commands = COMMAND_FACADES.computeIfAbsent(
                         entry.getKey(), key -> new ExtensionCommandManager());
-                entry.getValue().setContext(new ExtensionContextImpl(scheduler, events, commands));
+                ExtensionSettingsManager settings = SETTINGS.computeIfAbsent(
+                        entry.getKey(), ExtensionSettingsManager::new);
+                entry.getValue().setContext(new ExtensionContextImpl(scheduler, events, commands, settings));
                 refreshed++;
             } catch (Exception e) {
                 LOGGER.error("Failed to refresh context", e);
@@ -142,6 +187,155 @@ public class ExtensionManager {
         return Optional.ofNullable(EXTENSIONS.get(id));
     }
 
+    /**
+     * Whether the given extension is currently enabled: true only after a
+     * successful {@link #enable} without a later {@link #disable}.
+     * Unknown ids report false, never throw.
+     *
+     * @param id the extension id, must not be {@code null}
+     * @return true when enabled
+     */
+    public static boolean isEnabled(String id) {
+        synchronized (STATE_LOCK) {
+            return stateLocked(id) == LifecycleState.ENABLED;
+        }
+    }
+
+    /**
+     * Every setting the given extension registered, in registration order.
+     *
+     * <p>Settings are declarations, not listeners: they survive
+     * {@link #disable} and are only removed when the extension itself is
+     * forgotten (currently only in tests via reset).
+     *
+     * @param id the extension id, must not be {@code null}
+     * @return an unmodifiable snapshot, or an empty list for unknown ids
+     */
+    public static List<Setting<?>> getSettings(String id) {
+        ExtensionSettingsManager settings = SETTINGS.get(id);
+        if (settings == null) {
+            return List.of();
+        }
+        return settings.all();
+    }
+
+    /**
+     * Owner ids with attached settings managers, in discovery order.
+     * Mosaic-internal: used by the settings store to enumerate persistence.
+     *
+     * @return an unmodifiable snapshot, never {@code null}
+     */
+    public static List<String> settingOwnerIds() {
+        return List.copyOf(SETTINGS.keySet());
+    }
+
+    /**
+     * Attaches the settings store that setting changes are reported to.
+     * Mosaic-internal: wired once during startup, cleared by test resets.
+     *
+     * @param store the store, or {@code null} to detach
+     */
+    public static void setSettingsStore(SettingsStore store) {
+        settingsStore = store;
+    }
+
+    /**
+     * Records a setting change for later persistence. Mosaic-internal:
+     * called by setting implementations on every {@code set()}, covering
+     * GUI and programmatic writes alike. Never throws.
+     */
+    public static void markSettingsDirty() {
+        SettingsStore store = settingsStore;
+        if (store != null) {
+            store.markDirty();
+        }
+    }
+
+    /**
+     * Writes pending setting changes, honoring the store's save interval.
+     * Safe to call every tick: returns immediately when nothing is dirty.
+     *
+     * @return true when the file was replaced
+     */
+    public static boolean saveSettingsIfDirty() {
+        SettingsStore store = settingsStore;
+        return store != null && store.saveIfDirty();
+    }
+
+    /**
+     * Writes all settings immediately, for shutdown flushes.
+     *
+     * @return true when the file was replaced
+     */
+    public static boolean saveSettings() {
+        SettingsStore store = settingsStore;
+        return store != null && store.save();
+    }
+
+    /**
+     * Ids of currently enabled extensions, in discovery order.
+     * Mosaic-internal: used by the settings store to persist lifecycle state.
+     *
+     * @return an unmodifiable snapshot, never {@code null}
+     */
+    public static List<String> enabledExtensionIds() {
+        List<String> enabled = new ArrayList<>();
+        synchronized (STATE_LOCK) {
+            for (String id : EXTENSIONS.keySet()) {
+                if (stateLocked(id) == LifecycleState.ENABLED) {
+                    enabled.add(id);
+                }
+            }
+        }
+        return enabled;
+    }
+
+    /**
+     * Enables every listed extension that is currently registered.
+     * Mosaic-internal: called once at startup after persisted settings are
+     * restored. Unknown ids are skipped; a failing extension stays disabled
+     * per the usual enable semantics.
+     *
+     * @param ids extension ids to enable, must not be {@code null}
+     */
+    public static void restoreEnabledState(List<String> ids) {
+        Objects.requireNonNull(ids, "ids");
+        for (String id : ids) {
+            if (id != null && get(id).isPresent()) {
+                enable(id);
+            }
+        }
+    }
+
+    /**
+     * The settings-section title the given extension asked for, if any.
+     * Extensions get no sidebar section unless they call
+     * {@code getContext().getSettings().registerSection(...)}.
+     *
+     * @param id the extension id, must not be {@code null}
+     * @return the title, or {@link Optional#empty()} for unknown ids or
+     * extensions that never asked for a section
+     */
+    public static Optional<String> getSettingsSection(String id) {
+        ExtensionSettingsManager settings = SETTINGS.get(id);
+        if (settings == null) {
+            return Optional.empty();
+        }
+        return settings.sectionTitle();
+    }
+
+    /**
+     * Enables an extension: transitions {@code DISABLED -> ENABLING}, runs
+     * {@code onEnable()} outside the state lock, then marks
+     * {@code ENABLED}. Calls that lose the transition (already enabled,
+     * enabling, or disabling) return without invoking the callback, so
+     * repeated or concurrent enables can never double-register.
+     *
+     * <p>If {@code onEnable()} throws, the error is logged, the commands
+     * and events registered during that call are rolled back, and the
+     * extension stays disabled so a later enable retries cleanly. Settings
+     * are declarations, not enable-scoped resources, and are left alone.
+     */
     public static void enable(String id) {
         Extension extension = EXTENSIONS.get(id);
 
@@ -150,19 +344,38 @@ public class ExtensionManager {
             return;
         }
 
-        if (Boolean.TRUE.equals(ENABLED.get(id))) {
-            return;
+        synchronized (STATE_LOCK) {
+            if (stateLocked(id) != LifecycleState.DISABLED) {
+                return;
+            }
+            STATES.put(id, LifecycleState.ENABLING);
         }
 
         try {
             extension.onEnable();
-            ENABLED.put(id, true);
         } catch (Exception e) {
             LOGGER.error("Extension {} failed onEnable", id, e);
             clearOwned(id);
+            synchronized (STATE_LOCK) {
+                STATES.put(id, LifecycleState.DISABLED);
+            }
+            return;
         }
+        synchronized (STATE_LOCK) {
+            STATES.put(id, LifecycleState.ENABLED);
+        }
+        markSettingsDirty();
     }
 
+    /**
+     * Disables an enabled extension: transitions
+     * {@code ENABLED -> DISABLING}, runs {@code onDisable()} outside the
+     * state lock, then always removes its commands and events and marks
+     * {@code DISABLED} — even when {@code onDisable()} throws. Calls that
+     * lose the transition return without invoking the callback.
+     *
+     * <p>Settings survive disable by design.
+     */
     public static void disable(String id) {
         Extension extension = EXTENSIONS.get(id);
 
@@ -171,8 +384,11 @@ public class ExtensionManager {
             return;
         }
 
-        if (!Boolean.TRUE.equals(ENABLED.get(id))) {
-            return;
+        synchronized (STATE_LOCK) {
+            if (stateLocked(id) != LifecycleState.ENABLED) {
+                return;
+            }
+            STATES.put(id, LifecycleState.DISABLING);
         }
 
         try {
@@ -181,7 +397,10 @@ public class ExtensionManager {
             LOGGER.error("Extension {} failed onDisable", id, e);
         } finally {
             clearOwned(id);
-            ENABLED.put(id, false);
+            synchronized (STATE_LOCK) {
+                STATES.put(id, LifecycleState.DISABLED);
+            }
+            markSettingsDirty();
         }
     }
 

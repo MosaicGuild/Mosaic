@@ -6,26 +6,35 @@ import org.mosaicmc.api.ExtensionContext;
 import org.mosaicmc.api.ExtensionEvents;
 import org.mosaicmc.api.ExtensionScheduler;
 import org.mosaicmc.api.command.CommandManager;
+import org.mosaicmc.api.settings.Settings;
 
 public final class ExtensionContextImpl implements ExtensionContext {
 
     private final ExtensionScheduler scheduler;
     private final ExtensionEvents events;
     private final CommandManager commands;
+    private final Settings settings;
 
     public ExtensionContextImpl(ExtensionScheduler scheduler) {
-        this(scheduler, new ExtensionEventsImpl(), new ExtensionCommandManager());
+        this(scheduler, new ExtensionEventsImpl(), new ExtensionCommandManager(),
+                new ExtensionSettingsManager());
     }
 
     public ExtensionContextImpl(ExtensionScheduler scheduler, ExtensionEvents events) {
-        this(scheduler, events, new ExtensionCommandManager());
+        this(scheduler, events, new ExtensionCommandManager(), new ExtensionSettingsManager());
     }
 
     public ExtensionContextImpl(ExtensionScheduler scheduler, ExtensionEvents events,
             CommandManager commands) {
+        this(scheduler, events, commands, new ExtensionSettingsManager());
+    }
+
+    public ExtensionContextImpl(ExtensionScheduler scheduler, ExtensionEvents events,
+            CommandManager commands, Settings settings) {
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.events = Objects.requireNonNull(events, "events");
         this.commands = Objects.requireNonNull(commands, "commands");
+        this.settings = Objects.requireNonNull(settings, "settings");
     }
 
     @Override
@@ -41,5 +50,10 @@ public final class ExtensionContextImpl implements ExtensionContext {
     @Override
     public CommandManager getCommands() {
         return commands;
+    }
+
+    @Override
+    public Settings getSettings() {
+        return settings;
     }
 }

@@ -17,7 +17,7 @@ public class MosaicKeys {
                 new KeyMapping(
                         "key.mosaic.screen",
                         InputConstants.Type.KEYBOARD,
-                        InputConstants.KEY_LSHIFT,
+                        InputConstants.KEY_RSHIFT,
                         CATEGORY
                 ));
     }
