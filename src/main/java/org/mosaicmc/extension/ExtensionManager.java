@@ -2,10 +2,12 @@ package org.mosaicmc.extension;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.entrypoint.EntrypointContainer;
@@ -18,6 +20,7 @@ import org.mosaicmc.internal.ExtensionCommandManager;
 import org.mosaicmc.internal.ExtensionContextImpl;
 import org.mosaicmc.internal.ExtensionEventsImpl;
 import org.mosaicmc.internal.ExtensionSettingsManager;
+import org.mosaicmc.internal.ExtensionStorageManager;
 import org.mosaicmc.internal.SettingsStore;
 import org.slf4j.Logger;
 
@@ -27,6 +30,7 @@ public class ExtensionManager {
     private static final Map<String, ExtensionEventsImpl> EVENT_BRIDGES = new LinkedHashMap<>();
     private static final Map<String, ExtensionCommandManager> COMMAND_FACADES = new LinkedHashMap<>();
     private static final Map<String, ExtensionSettingsManager> SETTINGS = new LinkedHashMap<>();
+    private static final Map<String, ExtensionStorageManager> STORAGES = new LinkedHashMap<>();
     /**
      * Lifecycle states. Guarded by {@link #STATE_LOCK}, which is held only
      * for state reads and transitions — never while running extension
@@ -82,9 +86,10 @@ public class ExtensionManager {
             ExtensionEventsImpl events = new ExtensionEventsImpl();
             ExtensionCommandManager commands = new ExtensionCommandManager();
             ExtensionSettingsManager settings = new ExtensionSettingsManager();
+            ExtensionStorageManager storage = new ExtensionStorageManager();
 
             try {
-                extension.setContext(new ExtensionContextImpl(scheduler, events, commands, settings));
+                extension.setContext(new ExtensionContextImpl(scheduler, events, commands, settings, storage));
             } catch (Exception e) {
                 LOGGER.error("Failed to inject context into extension from {}", modId, e);
                 continue;
@@ -114,6 +119,7 @@ public class ExtensionManager {
             COMMAND_FACADES.put(id, commands);
             settings.setOwner(id);
             SETTINGS.put(id, settings);
+            STORAGES.put(id, storage);
 
             try {
                 extension.onLoad();
@@ -125,6 +131,7 @@ public class ExtensionManager {
                 EVENT_BRIDGES.remove(id);
                 COMMAND_FACADES.remove(id);
                 SETTINGS.remove(id);
+                STORAGES.remove(id);
             }
         }
     }
@@ -138,6 +145,7 @@ public class ExtensionManager {
         EVENT_BRIDGES.clear();
         COMMAND_FACADES.clear();
         SETTINGS.clear();
+        STORAGES.clear();
         settingsStore = null;
         synchronized (STATE_LOCK) {
             STATES.clear();
@@ -169,7 +177,9 @@ public class ExtensionManager {
                         entry.getKey(), key -> new ExtensionCommandManager());
                 ExtensionSettingsManager settings = SETTINGS.computeIfAbsent(
                         entry.getKey(), ExtensionSettingsManager::new);
-                entry.getValue().setContext(new ExtensionContextImpl(scheduler, events, commands, settings));
+                ExtensionStorageManager storage = STORAGES.computeIfAbsent(
+                        entry.getKey(), key -> new ExtensionStorageManager());
+                entry.getValue().setContext(new ExtensionContextImpl(scheduler, events, commands, settings, storage));
                 refreshed++;
             } catch (Exception e) {
                 LOGGER.error("Failed to refresh context", e);
@@ -227,6 +237,63 @@ public class ExtensionManager {
      */
     public static List<String> settingOwnerIds() {
         return List.copyOf(SETTINGS.keySet());
+    }
+
+    /**
+     * Owner ids with attached storage managers, in discovery order.
+     * Mosaic-internal: used by the settings store to enumerate persistence.
+     *
+     * @return an unmodifiable snapshot, never {@code null}
+     */
+    public static List<String> storageOwnerIds() {
+        return List.copyOf(STORAGES.keySet());
+    }
+
+    /**
+     * Live storage entries for one extension, for persistence.
+     * Mosaic-internal: used by the settings store when saving.
+     *
+     * @param id the extension id, must not be {@code null}
+     * @return a mutable copy in insertion order, or an empty map for
+     * unknown ids, never {@code null}
+     */
+    public static Map<String, String> getStorageEntries(String id) {
+        ExtensionStorageManager storage = STORAGES.get(id);
+        if (storage == null) {
+            return new LinkedHashMap<>();
+        }
+        return storage.snapshot();
+    }
+
+    /**
+     * Keys applied by the last startup load, for save merging.
+     * Mosaic-internal: used by the settings store when saving.
+     *
+     * @param id the extension id, must not be {@code null}
+     * @return a mutable copy, or an empty set for unknown ids, never
+     * {@code null}
+     */
+    public static Set<String> getStorageLoadedKeys(String id) {
+        ExtensionStorageManager storage = STORAGES.get(id);
+        if (storage == null) {
+            return new LinkedHashSet<>();
+        }
+        return storage.loadedKeys();
+    }
+
+    /**
+     * Replaces one extension's storage with file values.
+     * Mosaic-internal: called by the settings store during the startup load.
+     * Unknown ids are ignored.
+     *
+     * @param id the extension id, must not be {@code null}
+     * @param loaded file values, must not be {@code null}
+     */
+    public static void applyStorageLoaded(String id, Map<String, String> loaded) {
+        ExtensionStorageManager storage = STORAGES.get(id);
+        if (storage != null) {
+            storage.applyLoaded(loaded);
+        }
     }
 
     /**

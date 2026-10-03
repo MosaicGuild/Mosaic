@@ -44,6 +44,9 @@ import org.mosaicmc.extension.ExtensionManager;
  *     "mosaic": { "notifications": true, "ui_scale": 100, "theme": "DARK" },
  *     "waypoints": { "enabled": true, "radius": 120 }
  *   },
+ *   "storage": {
+ *     "waypoints": { "waypoints": "home|12|64|-45|minecraft:overworld\n..." }
+ *   },
  *   "enabled": ["waypoints"]
  * }</pre>
  *
@@ -77,6 +80,8 @@ public final class SettingsStore {
     private volatile boolean frozen;
     /** Last-loaded raw sections, kept to preserve unknown owners/settings across saves. */
     private final Map<String, JsonObject> rawSections = new LinkedHashMap<>();
+    /** Last-loaded raw storage sections, kept to preserve unknown owners/values across saves. */
+    private final Map<String, JsonObject> rawStorage = new LinkedHashMap<>();
     /** Enabled ids exactly as listed in the file, including unknown ones, for verbatim preservation. */
     private final Set<String> rawEnabledIds = new LinkedHashSet<>();
     /** Enabled ids filtered to currently registered extensions; applied by the startup sequence. */
@@ -141,6 +146,7 @@ public final class SettingsStore {
     public synchronized void load() {
         frozen = false;
         rawSections.clear();
+        rawStorage.clear();
         rawEnabledIds.clear();
         loadedEnabledIds = List.of();
         String content;
@@ -225,17 +231,65 @@ public final class SettingsStore {
             rawSections.put(owner, section.deepCopy());
             Map<String, Setting<?>> declared = indexById(declaredSettings(owner));
             if (declared.isEmpty()) {
-                // Unknown owner (temporarily unavailable or failed-load
-                // extension): preserved verbatim for a later save.
                 continue;
             }
             for (Map.Entry<String, JsonElement> valueEntry : section.entrySet()) {
                 Setting<?> setting = declared.get(valueEntry.getKey());
                 if (setting == null) {
-                    continue; // Unknown setting id: preserved via rawSections.
+                    continue;
                 }
                 applyValue(owner, setting, valueEntry.getValue(), epoch);
             }
+        }
+        loadStorage(root);
+    }
+
+    /**
+     * Loads the top-level {@code storage} object into the registered
+     * extensions' storage managers. The section is optional: older files
+     * without it load as empty storage. Non-string values and blank keys are
+     * skipped with a warning but preserved verbatim for the next save.
+     * Like settings, loading never marks or clears dirty, and startup
+     * restore wins over values written before the load.
+     */
+    private void loadStorage(JsonObject root) {
+        if (!root.has("storage")) {
+            return;
+        }
+        if (!root.get("storage").isJsonObject()) {
+            Mosaic.LOGGER.error("[Mosaic] settings file {} has a non-object 'storage' section, ignoring it",
+                    file);
+            backupCorruptFile();
+            return;
+        }
+        JsonObject owners = root.getAsJsonObject("storage");
+        for (Map.Entry<String, JsonElement> ownerEntry : owners.entrySet()) {
+            String owner = ownerEntry.getKey();
+            if (!ownerEntry.getValue().isJsonObject()) {
+                Mosaic.LOGGER.warn("[Mosaic] ignoring non-object storage section for '{}' in {}", owner, file);
+                continue;
+            }
+            JsonObject section = ownerEntry.getValue().getAsJsonObject();
+            rawStorage.put(owner, section.deepCopy());
+            if (!ExtensionManager.storageOwnerIds().contains(owner)) {
+                continue;
+            }
+            Map<String, String> loaded = new LinkedHashMap<>();
+            for (Map.Entry<String, JsonElement> valueEntry : section.entrySet()) {
+                String key = valueEntry.getKey();
+                JsonElement raw = valueEntry.getValue();
+                if (key.isBlank()) {
+                    Mosaic.LOGGER.warn("[Mosaic] ignoring blank storage key for '{}' in {}", owner, file);
+                    continue;
+                }
+                if (!raw.isJsonPrimitive() || !raw.getAsJsonPrimitive().isString()) {
+                    Mosaic.LOGGER.warn("[Mosaic] storage '{}.{}' in {} is not a JSON string, skipping it",
+                            owner, key, file);
+                    continue;
+                }
+                loaded.put(key, raw.getAsString());
+            }
+            ExtensionManager.applyStorageLoaded(owner, loaded);
         }
     }
 
@@ -261,6 +315,19 @@ public final class SettingsStore {
             if (!unknown.getKey().equals(CORE_OWNER)
                     && !ExtensionManager.settingOwnerIds().contains(unknown.getKey())) {
                 owners.add(unknown.getKey(), unknown.getValue().deepCopy());
+            }
+        }
+        JsonObject storageOwners = new JsonObject();
+        root.add("storage", storageOwners);
+        for (String owner : ExtensionManager.storageOwnerIds()) {
+            storageOwners.add(owner, ExtensionStorageManager.sectionFor(
+                    ExtensionManager.getStorageEntries(owner),
+                    ExtensionManager.getStorageLoadedKeys(owner),
+                    rawStorage.get(owner)));
+        }
+        for (Map.Entry<String, JsonObject> unknown : rawStorage.entrySet()) {
+            if (!ExtensionManager.storageOwnerIds().contains(unknown.getKey())) {
+                storageOwners.add(unknown.getKey(), unknown.getValue().deepCopy());
             }
         }
         Set<String> enabled = new LinkedHashSet<>(ExtensionManager.enabledExtensionIds());
@@ -397,7 +464,8 @@ public final class SettingsStore {
         return ids;
     }
 
-    private static Integer parseVersion(JsonElement raw) {        if (!raw.isJsonPrimitive() || !raw.getAsJsonPrimitive().isNumber()) {
+    private static Integer parseVersion(JsonElement raw) {
+        if (!raw.isJsonPrimitive() || !raw.getAsJsonPrimitive().isNumber()) {
             return null;
         }
         return parseInteger(raw);

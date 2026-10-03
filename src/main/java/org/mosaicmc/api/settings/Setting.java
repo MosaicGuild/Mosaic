@@ -3,11 +3,12 @@ package org.mosaicmc.api.settings;
 /**
  * A single typed setting declared by an extension.
  *
- * <p>Settings are configuration declarations: they hold an in-memory value
- * for the running session and are shown in Mosaic's settings screen. There
- * is no persistence in this version; values reset when the game restarts.
- * The declaration and read API is persistence-agnostic so a future backend
- * can be added without changing extensions.
+ * <p>Settings are configuration declarations: they hold the current value
+ * for the running session and are shown in Mosaic's settings screen.
+ * Values are persisted by Mosaic to its settings file, so they survive
+ * game restarts; disabling an extension never deletes or resets them.
+ * The declaration and read API stays persistence-agnostic, so the backend
+ * can evolve without changing extensions.
  *
  * <p>Do not implement this interface; obtain instances from
  * {@link Settings}. Setting identity is stable for the session: repeated

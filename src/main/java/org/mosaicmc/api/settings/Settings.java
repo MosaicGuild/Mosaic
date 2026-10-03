@@ -42,7 +42,8 @@ import java.util.Optional;
  * registering the same id twice is an error.
  *
  * <p>Settings are declarations, not listeners: disabling an extension does
- * not delete its settings or reset their values.
+ * not delete its settings or reset their values. Values are persisted by
+ * Mosaic and restored on the next startup.
  *
  * <p>No settings section is created automatically. To show this
  * extension's settings in Mosaic's settings screen, ask for a section:

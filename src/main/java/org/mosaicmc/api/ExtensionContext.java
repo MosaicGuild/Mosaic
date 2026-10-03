@@ -2,6 +2,7 @@ package org.mosaicmc.api;
 
 import org.mosaicmc.api.command.CommandManager;
 import org.mosaicmc.api.settings.Settings;
+import org.mosaicmc.api.storage.ExtensionStorage;
 
 /**
  * Services Mosaic provides to one extension.
@@ -41,4 +42,14 @@ public interface ExtensionContext {
      * @return the settings facade, never {@code null}
      */
     Settings getSettings();
+
+    /**
+     * Provides access to the extension's private string store, for small
+     * custom data that does not fit typed settings declarations.
+     *
+     * <p>Storage keys are scoped to the calling extension, like setting ids.
+     *
+     * @return the storage facade, never {@code null}
+     */
+    ExtensionStorage getStorage();
 }
